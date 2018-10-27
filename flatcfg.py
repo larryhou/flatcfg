@@ -323,6 +323,7 @@ class FlatbufEncoder(BookEncoder):
         buffer.write('{\n')
         for member in table.member_fields:
             buffer.write('{}{}:'.format(indent, member.name))
+            type_format = '[{}]' if member.rule == FieldRule.repeated else '{}'
             if isinstance(member, TableFieldObject):
                 nest_table_list.append(member)
                 assert member.name
@@ -333,14 +334,14 @@ class FlatbufEncoder(BookEncoder):
                 buffer.write('[{}]'.format(member.table.type_name))
             elif isinstance(member, EnumFieldObject):
                 assert member.enum
-                buffer.write(member.enum)
+                buffer.write(type_format.format(member.enum))
             elif member.type == FieldType.date:
-                buffer.write(FieldType.uint32.name)
+                buffer.write(type_format.format(FieldType.uint32.name))
             elif member.type == FieldType.duration:
-                buffer.write(FieldType.uint32.name)
+                buffer.write(type_format.format(FieldType.uint32.name))
             else:
                 assert member.type, member
-                buffer.write(member.type.name)
+                buffer.write(type_format.format(member.type.name))
             if member.name.lower() == 'id':
                 buffer.write('(key)')
             elif member.type not in (FieldType.table, FieldType.array):
@@ -508,6 +509,7 @@ class SheetSerializer(Codec):
         assert field.name and field.type, field
         if not field.default:
             _, field.default = self.parse_value('', field.type)
+        if field.rule == FieldRule.repeated: field.default = ''
         self.log(depth, '{:2d} {:2s} {}'.format(c, self.abc(c), field))
         self.__field_map[field.offset] = field
         return field

@@ -171,8 +171,13 @@ class Codec(object):
         elif t == FieldType.bool: return self.parse_bool(v), 'false'
         else: return v, ''
 
+    def uniform_name(self, v:str):
+        if v.find('_') > 0:
+            return ''.join([x.title() for x in v.split('_')])
+        else: return v[0].upper() + v[1:]
+
 class BookEncoder(Codec):
-    def __init__(self, workspace:str):
+    def __init__(self, workspace:str, debug:bool):
         super(BookEncoder, self).__init__()
         self.package_name: str = ''
         self.enum_filepath: str = None
@@ -183,6 +188,7 @@ class BookEncoder(Codec):
         assert workspace
         if not p.exists(workspace): os.makedirs(workspace)
         self.workspace:str = workspace
+        self.debug = debug
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -200,8 +206,8 @@ class BookEncoder(Codec):
         pass
 
 class ProtobufEncoder(BookEncoder):
-    def __init__(self, workspace:str):
-        super(ProtobufEncoder, self).__init__(workspace)
+    def __init__(self, workspace:str, debug:bool):
+        super(ProtobufEncoder, self).__init__(workspace, debug)
         self.enum_filename = '{}.proto'.format(SHARED_ENUM_NAME)
 
     def __generate_enums(self, enum_map:Dict[str, Dict[str, int]], buffer:io.StringIO = None)->str:
@@ -225,6 +231,7 @@ class ProtobufEncoder(BookEncoder):
         buffer.write('{\n')
         for n in range(len(table.member_fields)):
             member = table.member_fields[n]
+            assert member.rule, member
             buffer.write('{}{} '.format(indent, member.rule.name))
             if isinstance(member, TableFieldObject):
                 nest_table_list.append(member)
@@ -268,11 +275,13 @@ class ProtobufEncoder(BookEncoder):
             if self.package_name:
                 fp.write('package {};\n\n'.format(self.package_name))
             fp.write(self.__generate_enums(enum_map))
-            fp.seek(0)
-            print('+ {}'.format(self.enum_filepath))
-            print(fp.read())
+            if self.debug:
+                fp.seek(0)
+                print('+ {}'.format(self.enum_filepath))
+                print(fp.read())
 
     def save_syntax(self, table:TableFieldObject):
+        print('# {}'.format(self.sheet.name))
         self.syntax_filepath = p.join(self.workspace, '{}.proto'.format(table.type_name.lower()))
         with open(self.syntax_filepath, 'w+') as fp:
             buffer = io.StringIO()
@@ -287,8 +296,8 @@ class ProtobufEncoder(BookEncoder):
             print(fp.read())
 
 class FlatbufEncoder(BookEncoder):
-    def __init__(self, workspace:str):
-        super(FlatbufEncoder, self).__init__(workspace)
+    def __init__(self, workspace:str, debug:bool):
+        super(FlatbufEncoder, self).__init__(workspace, debug)
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
 
     def __generate_enums(self, enum_map:Dict[str, Dict[str, int]], buffer:io.StringIO = None)->str:
@@ -357,11 +366,13 @@ class FlatbufEncoder(BookEncoder):
             if self.package_name:
                 fp.write('namespace {};\n\n'.format(self.package_name))
             fp.write(self.__generate_enums(enum_map))
-            fp.seek(0)
-            print('+ {}'.format(self.enum_filepath))
-            print(fp.read())
+            if self.debug:
+                fp.seek(0)
+                print('+ {}'.format(self.enum_filepath))
+                print(fp.read())
 
     def save_syntax(self, table:TableFieldObject):
+        print('# {}'.format(self.sheet.name))
         self.syntax_filepath = p.join(self.workspace, '{}.fbs'.format(table.type_name.lower()))
         with open(self.syntax_filepath, 'w+') as fp:
             buffer = io.StringIO()
@@ -391,12 +402,6 @@ class SheetSerializer(Codec):
             with open(self.__enum_filepath) as fp:
                 self.__enum_map: dict[str, dict[str, int]] = json.load(fp)
 
-    def __parse_int(self, v):
-        return self.parse_int(v)
-
-    def __is_int(self, v:str):
-        return self.is_int(v)
-
     def __parse_access(self, v:str)->FieldAccess:
         v = v.lower()
         if v in ('s', 'svr', 'server'): return FieldAccess.server
@@ -418,12 +423,9 @@ class SheetSerializer(Codec):
         return label
 
     def __get_table_name(self, field_name:str, prefix:str = None)->str:
-        if field_name.find('_') > 0:
-            table_name = ''.join([x.title() for x in field_name.split('_')])
-        else:
-            table_name = field_name
+        table_name = self.uniform_name(field_name)
         if prefix and prefix.find('_'):
-            prefix = ''.join([x.title() for x in prefix.split('_')])
+            prefix = self.uniform_name(prefix)
         return prefix + table_name if prefix else table_name
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
@@ -478,8 +480,8 @@ class SheetSerializer(Codec):
         field.access = self.__parse_access(field_aces)
         field.description = field_desc
         field.offset = c
-        if self.__is_int(field_type):
-            num = self.__parse_int(field_type)
+        if self.is_int(field_type):
+            num = self.parse_int(field_type)
             if field.rule == FieldRule.repeated:
                 nest_array = ArrayFieldObject(num)
                 nest_array.fill(field)
@@ -575,20 +577,23 @@ if __name__ == '__main__':
     arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg')
     arguments.add_argument('--book-file', '-f', nargs='+', required=True)
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
+    arguments.add_argument('--debug', '-d', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
+        print('>>> {}'.format(book_filepath))
         book = xlrd.open_workbook(book_filepath)
         for sheet_name in book.sheet_names(): # type: str
             if not sheet_name.isupper(): continue
-            serializer = SheetSerializer()
+            serializer = SheetSerializer(debug=options.debug)
             try:
                 serializer.parse_syntax(book.sheet_by_name(sheet_name))
+                if options.use_protobuf:
+                    encoder = ProtobufEncoder(workspace=options.workspace, debug=options.debug)
+                else:
+                    encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
+                encoder.set_package_name('dataconfig')
+                serializer.pack(encoder)
             except Exception: continue
-            if options.use_protobuf:
-                encoder = ProtobufEncoder(workspace=options.workspace)
-            else:
-                encoder = FlatbufEncoder(workspace=options.workspace)
-            encoder.set_package_name('dataconfig')
-            serializer.pack(encoder)
+
 
 

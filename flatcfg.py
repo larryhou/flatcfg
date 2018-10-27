@@ -332,9 +332,10 @@ class FlatbufEncoder(BookEncoder):
             else:
                 assert member.type, member
                 buffer.write(member.type.name)
-            if member.type not in (FieldType.table, FieldType.array):
+            if member.name.lower() == 'id':
+                buffer.write('(key)')
+            elif member.type not in (FieldType.table, FieldType.array):
                 if member.default: buffer.write(' = {}'.format(member.default))
-            if member.name.lower() == 'id': buffer.write('(key)')
             buffer.write(';')
             if member.description: buffer.write(' // {!r}'.format(member.description))
             buffer.write('\n')

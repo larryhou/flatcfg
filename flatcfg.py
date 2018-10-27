@@ -131,7 +131,7 @@ class TableFieldObject(FieldObject):
     def __repr__(self):
         return '{} type:{} member_count:{}'.format(super(TableFieldObject, self).__repr__(), self.type_name, len( self.member_fields))
 
-class BytesEncoder(object):
+class ConfigEncoder(object):
     def __init__(self, workspace:str):
         self.package_name: str = ''
         self.enum_filepath: str = None
@@ -172,7 +172,7 @@ class BytesEncoder(object):
         return self.parse_int(v) != 0 if v else False
 
     def parse_array(self, v:str):
-        return [self.opt(x) for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
+        return [self.opt(x) if self else x for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
 
     def parse_value(self, v:str, t:FieldType):
         if t in (FieldType.array, FieldType.table): return v
@@ -193,7 +193,7 @@ class BytesEncoder(object):
     def save_syntax(self, table: TableFieldObject):
         pass
 
-class ProtobufEncoder(BytesEncoder):
+class ProtobufEncoder(ConfigEncoder):
     def __init__(self, workspace:str):
         super(ProtobufEncoder, self).__init__(workspace)
         self.enum_filename = '{}.proto'.format(SHARED_ENUM_NAME)
@@ -280,7 +280,7 @@ class ProtobufEncoder(BytesEncoder):
             print('+ {}'.format(self.syntax_filepath))
             print(fp.read())
 
-class FlatbufEncoder(BytesEncoder):
+class FlatbufEncoder(ConfigEncoder):
     def __init__(self, workspace:str):
         super(FlatbufEncoder, self).__init__(workspace)
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
@@ -537,11 +537,12 @@ class SheetSerializer(object):
         for r in range(ROW_DATA_INDEX, self.__sheet.nrows):
             cell = self.__sheet.cell(r, column)
             if cell.ctype != xlrd.XL_CELL_TEXT: continue
-            field_value = str(cell.value).strip()
-            if field_value not in unique_values: unique_values.append(field_value)
+            value_list = ConfigEncoder.parse_array(None, str(cell.value).strip())
+            for field_value in value_list:
+                if field_value not in unique_values: unique_values.append(field_value)
         return unique_values
 
-    def pack(self, encoder:BytesEncoder):
+    def pack(self, encoder:ConfigEncoder):
         visit_map:dict[str, bool] = {}
         for field in self.__field_map.values():
             if not isinstance(field, EnumFieldObject): continue
@@ -565,6 +566,7 @@ if __name__ == '__main__':
     arguments.add_argument('--book-file', '-f', nargs='+', required=True)
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
+    import time
     for book_filepath in options.book_file:
         book = xlrd.open_workbook(book_filepath)
         for sheet_name in book.sheet_names(): # type: str
@@ -572,12 +574,13 @@ if __name__ == '__main__':
             serializer = SheetSerializer()
             try:
                 serializer.parse_syntax(book.sheet_by_name(sheet_name))
-                if options.use_protobuf:
-                    encoder = ProtobufEncoder(workspace=options.workspace)
-                else:
-                    encoder = FlatbufEncoder(workspace=options.workspace)
-                encoder.set_package_name('dataconfig')
-                serializer.pack(encoder)
-            except Exception: pass
-            break
+            except Exception:
+                continue
+            if options.use_protobuf:
+                encoder = ProtobufEncoder(workspace=options.workspace)
+            else:
+                encoder = FlatbufEncoder(workspace=options.workspace)
+            encoder.set_package_name('dataconfig')
+            serializer.pack(encoder)
+
 

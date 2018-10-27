@@ -18,7 +18,7 @@ class FieldType(enum.Enum):
     int16, uint16, int8 , uint8 , \
     int32, uint32, int64, uint64, \
     short, ushort, byte, ubyte, long, ulong, \
-    bool, string, bytes = range(21) # standard protobuf scalar types
+    bool, string = range(20) # standard protobuf scalar types
     date, duration, enum, table, array = tuple(x + 100 for x in range(5)) # extend field types
 
 class FieldRule(enum.Enum):

@@ -252,7 +252,7 @@ class ProtobufEncoder(BookEncoder):
                 assert member.type, member
                 buffer.write(member.type.name)
             buffer.write(' {} = {}'.format(member.name, n + 1))
-            if member.type not in (FieldType.table, FieldType.array):
+            if member.type not in (FieldType.table, FieldType.array) and member.rule != FieldRule.repeated:
                 if member.default: buffer.write('[default = {}]'.format(member.default))
             buffer.write(';')
             if member.description: buffer.write(' // {!r}'.format(member.description))
@@ -344,7 +344,7 @@ class FlatbufEncoder(BookEncoder):
                 buffer.write(type_format.format(member.type.name))
             if member.name.lower() == 'id':
                 buffer.write('(key)')
-            elif member.type not in (FieldType.table, FieldType.array):
+            elif member.type not in (FieldType.table, FieldType.array) and member.rule != FieldRule.repeated:
                 if member.default: buffer.write(' = {}'.format(member.default))
             buffer.write(';')
             if member.description: buffer.write(' // {!r}'.format(member.description))

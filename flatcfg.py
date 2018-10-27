@@ -246,6 +246,7 @@ class SheetSerializer(object):
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
         self.log(depth, '[ARRAY] col:{} count:{}'.format(self.abc(column-1), array.count))
         table:TableFieldObject = self.__parse_field(sheet, column, depth=depth + 1)
+        assert table.type == FieldType.table
         c = column + 1
         assert table.member_count > 0
         table.name = self.__get_table_name(table.name, prefix=sheet.name)

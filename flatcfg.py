@@ -562,21 +562,22 @@ if __name__ == '__main__':
     import sys, argparse
     arguments = argparse.ArgumentParser()
     arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg')
-    arguments.add_argument('--book-file', '-f', required=True)
+    arguments.add_argument('--book-file', '-f', nargs='+', required=True)
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
-    book = xlrd.open_workbook(options.book_file)
-    for sheet_name in book.sheet_names(): # type: str
-        if not sheet_name.isupper(): continue
-        serializer = SheetSerializer()
-        try:
-            serializer.parse_syntax(book.sheet_by_name(sheet_name))
-            if options.use_protobuf:
-                encoder = ProtobufEncoder(workspace=options.workspace)
-            else:
-                encoder = FlatbufEncoder(workspace=options.workspace)
-            encoder.set_package_name('dataconfig')
-            serializer.pack(encoder)
-        except Exception: pass
-        break
+    for book_filepath in options.book_file:
+        book = xlrd.open_workbook(book_filepath)
+        for sheet_name in book.sheet_names(): # type: str
+            if not sheet_name.isupper(): continue
+            serializer = SheetSerializer()
+            try:
+                serializer.parse_syntax(book.sheet_by_name(sheet_name))
+                if options.use_protobuf:
+                    encoder = ProtobufEncoder(workspace=options.workspace)
+                else:
+                    encoder = FlatbufEncoder(workspace=options.workspace)
+                encoder.set_package_name('dataconfig')
+                serializer.pack(encoder)
+            except Exception: pass
+            break
 

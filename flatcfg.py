@@ -36,7 +36,7 @@ class FieldObject(object):
         self.size:int = 1
         self.access:FieldAccess = FieldAccess.default
         self.description:str = ''
-        self.default:str = None
+        self.default:str = ''
 
     def fill(self, f:'FieldObject'):
         for name, value in vars(f).items():

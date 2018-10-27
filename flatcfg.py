@@ -231,10 +231,16 @@ class FlatbufEncoder(BytesEncoder):
                 if member.name == 'id': buffer.write(' (key)')
             if member.type not in (FieldType.table, FieldType.array):
                 if member.default: buffer.write(' = {}'.format(member.default))
-            buffer.write(';\n')
+            buffer.write(';')
+            if member.description: buffer.write(' // {!r}'.format(member.description))
+            buffer.write('\n')
         buffer.write('}\n\n')
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer)
+        if table.member_count == 0:
+            buffer.write('table {}_ARRAY\n{{\n'.format(table.name))
+            buffer.write('{}items:[{}];\n'.format(indent, table.name))
+            buffer.write('}\n')
 
     def encode(self, sheet:xlrd.sheet.Sheet):
         self.sheet = sheet
@@ -244,7 +250,7 @@ class FlatbufEncoder(BytesEncoder):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)
         with open(self.enum_filepath, 'w+') as fp:
             if self.package_name:
-                fp.write('namespace {};\n'.format(self.package_name))
+                fp.write('namespace {};\n\n'.format(self.package_name))
             fp.write(self.__generate_enums(enum_map))
             fp.seek(0)
             print('+ {}'.format(self.enum_filepath))
@@ -256,9 +262,9 @@ class FlatbufEncoder(BytesEncoder):
             buffer = io.StringIO()
             self.__generate_syntax(table, buffer)
             buffer.seek(0)
-            fp.write('include "{}";\n'.format(self.enum_filename))
+            fp.write('include "{}";\n\n'.format(self.enum_filename))
             if self.package_name:
-                fp.write('namespace {};\n'.format(self.package_name))
+                fp.write('namespace {};\n\n'.format(self.package_name))
             fp.write(buffer.read())
             fp.seek(0)
             print('+ {}'.format(self.syntax_filepath))
@@ -443,6 +449,11 @@ class SheetSerializer(object):
         encoder.encode(sheet=self.__sheet)
         encoder.save_enums(enum_map=self.__enum_map)
         encoder.save_syntax(table=self.__root)
+        with open(self.__enum_filepath, 'w+') as fp:
+            json.dump(self.__enum_map, fp, indent=4)
+            print('+ {}'.format(self.__enum_filepath))
+            fp.seek(0)
+            print(fp.read())
 
 if __name__ == '__main__':
     import sys

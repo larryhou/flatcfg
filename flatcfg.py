@@ -228,7 +228,7 @@ class FlatbufEncoder(BytesEncoder):
             else:
                 assert member.type, member
                 buffer.write(member.type.name)
-                if member.name == 'id': buffer.write(' (key)')
+                if member.name.lower() == 'id': buffer.write(' (key)')
             if member.type not in (FieldType.table, FieldType.array):
                 if member.default: buffer.write(' = {}'.format(member.default))
             buffer.write(';')
@@ -353,11 +353,12 @@ class SheetSerializer(object):
         cell_type = sheet.cell_type(ROW_RULE_INDEX, c)
         if cell_type != xlrd.XL_CELL_TEXT: return None
         field_rule = sheet.cell_value(ROW_RULE_INDEX, c).strip()  # type: str
-        if field_rule == '*': return None
         field_type = str(sheet.cell_value(ROW_TYPE_INDEX, c)).strip()  # type: str
         field_name = str(sheet.cell_value(ROW_NAME_INDEX, c)).strip()  # type: str
         field_aces = str(sheet.cell_value(ROW_ACES_INDEX, c)).strip()  # type: str
         field_desc = str(sheet.cell_value(ROW_DESC_INDEX, c)).strip()  # type: str
+        ignore_charset = '\uff0a* '
+        if field_rule in ignore_charset or field_type in ignore_charset: return None
         # fill field object
         field = FieldObject()
         field.type = type_map.get(field_type.lower())
@@ -388,12 +389,14 @@ class SheetSerializer(object):
         elif field_type.startswith('enum.'):
             enum_field = EnumFieldObject(re.sub(r'^enum\.', '', field_type))
             enum_field.fill(field)
+            enum_field.type = FieldType.enum
             if enum_field.enum not in self.__enum_map:
                 self.__enum_map[enum_field.enum] = {}
             enum_field.case_map = self.__enum_map.get(enum_field.enum)
             field = enum_field
         elif field_type == 'DateTime':
             field.type = FieldType.date
+        assert field.name and field.type, field
         self.log(depth, '{:2d} {:2s} {}'.format(c, self.abc(c), field))
         self.__field_map[field.offset] = field
         return field
@@ -458,14 +461,13 @@ class SheetSerializer(object):
 if __name__ == '__main__':
     import sys
     book = xlrd.open_workbook(sys.argv[1])
-    # for sheet_name in book.sheet_names(): # type: str
-    #     if not sheet_name.isupper(): continue
-    #     serializer = SheetSerializer()
-    #     serializer.parse_syntax(book.sheet_by_name(sheet_name))
-    #     print('+'*80)
+    for sheet_name in book.sheet_names(): # type: str
+        if not sheet_name.isupper(): continue
+        serializer = SheetSerializer()
+        try:
+            serializer.parse_syntax(book.sheet_by_name(sheet_name))
+            encoder = FlatbufEncoder(workspace='/Users/larryhou/Downloads/flatcfg')
+            encoder.set_package_name('dataconfig')
+            serializer.pack(encoder)
+        except Exception: pass
 
-    serializer = SheetSerializer()
-    serializer.parse_syntax(book.sheet_by_index(0))
-    encoder = FlatbufEncoder(workspace='/Users/larryhou/Downloads/flatcfg')
-    encoder.set_package_name('dataconfig')
-    serializer.pack(encoder)

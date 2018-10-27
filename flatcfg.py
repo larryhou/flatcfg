@@ -69,13 +69,28 @@ class EnumFieldObject(FieldObject):
                 if index > offset: offset = index
         else:
             abbr = re.findall(r'[A-Z]', self.enum)[:2]
-            default = '{}_NONE'.format(''.join(abbr))
-            self.case_map[self.default if self.default else default] = offset
+            default = self.default
+            if not default: default = '{}_NONE'.format(''.join(abbr))
+            self.default = default
+            self.case_map[default] = offset
         offset += 1
         for case_name in case_list:
             if case_name not in self.case_map:
                 self.case_map[case_name] = offset
                 offset += 1
+
+    def hook_default(self)->str:
+        if not self.default:
+            offset = 0xFFFF
+            default = ''
+            if self.case_map:
+                for name, index in self.case_map.items():
+                    if index < offset:
+                        offset = index
+                        default = name
+            self.default = default
+        return self.default
+
 
 class ArrayFieldObject(FieldObject):
     def __init__(self, count:int):
@@ -114,7 +129,7 @@ class TableFieldObject(FieldObject):
     def member_count(self)->int: return self.__member_count
 
     def __repr__(self):
-        return '{} member_count:{}'.format(super(TableFieldObject, self).__repr__(), len(self.member_fields))
+        return '{} type:{} member_count:{}'.format(super(TableFieldObject, self).__repr__(), self.type_name, len( self.member_fields))
 
 class BytesEncoder(object):
     def __init__(self, workspace:str):
@@ -200,7 +215,7 @@ class ProtobufEncoder(BytesEncoder):
     def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO):
         nest_table_list:list[TableFieldObject] = []
         indent = self.get_indent(1)
-        buffer.write('message {}\n'.format(table.name))
+        buffer.write('message {}\n'.format(table.type_name))
         buffer.write('{\n')
         for n in range(len(table.member_fields)):
             member = table.member_fields[n]
@@ -212,7 +227,7 @@ class ProtobufEncoder(BytesEncoder):
             elif isinstance(member, ArrayFieldObject):
                 assert member.table
                 nest_table_list.append(member.table)
-                buffer.write(member.table.name)
+                buffer.write(member.table.type_name)
             elif isinstance(member, EnumFieldObject):
                 assert member.enum
                 buffer.write(member.enum)
@@ -233,8 +248,8 @@ class ProtobufEncoder(BytesEncoder):
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer)
         if table.member_count == 0:
-            buffer.write('message {}_ARRAY\n{{\n'.format(table.name))
-            buffer.write('{}{} {} items = 1;\n'.format(indent, FieldRule.repeated.name, table.name))
+            buffer.write('message {}_ARRAY\n{{\n'.format(table.type_name))
+            buffer.write('{}{} {} items = 1;\n'.format(indent, FieldRule.repeated.name, table.type_name))
             buffer.write('}\n')
 
     def encode(self, sheet:xlrd.sheet.Sheet):
@@ -252,7 +267,7 @@ class ProtobufEncoder(BytesEncoder):
             print(fp.read())
 
     def save_syntax(self, table:TableFieldObject):
-        self.syntax_filepath = p.join(self.workspace, '{}.proto'.format(table.name.lower()))
+        self.syntax_filepath = p.join(self.workspace, '{}.proto'.format(table.type_name.lower()))
         with open(self.syntax_filepath, 'w+') as fp:
             buffer = io.StringIO()
             self.__generate_syntax(table, buffer)
@@ -289,7 +304,7 @@ class FlatbufEncoder(BytesEncoder):
     def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO):
         nest_table_list:list[TableFieldObject] = []
         indent = self.get_indent(1)
-        buffer.write('table {}\n'.format(table.name))
+        buffer.write('table {}\n'.format(table.type_name))
         buffer.write('{\n')
         for member in table.member_fields:
             buffer.write('{}{}:'.format(indent, member.name))
@@ -300,7 +315,7 @@ class FlatbufEncoder(BytesEncoder):
             elif isinstance(member, ArrayFieldObject):
                 assert member.table
                 nest_table_list.append(member.table)
-                buffer.write('[{}]'.format(member.table.name))
+                buffer.write('[{}]'.format(member.table.type_name))
             elif isinstance(member, EnumFieldObject):
                 assert member.enum
                 buffer.write(member.enum)
@@ -321,8 +336,8 @@ class FlatbufEncoder(BytesEncoder):
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer)
         if table.member_count == 0:
-            buffer.write('table {}_ARRAY\n{{\n'.format(table.name))
-            buffer.write('{}items:[{}];\n'.format(indent, table.name))
+            buffer.write('table {}_ARRAY\n{{\n'.format(table.type_name))
+            buffer.write('{}items:[{}];\n'.format(indent, table.type_name))
             buffer.write('}\n')
 
     def encode(self, sheet:xlrd.sheet.Sheet):
@@ -340,7 +355,7 @@ class FlatbufEncoder(BytesEncoder):
             print(fp.read())
 
     def save_syntax(self, table:TableFieldObject):
-        self.syntax_filepath = p.join(self.workspace, '{}.fbs'.format(table.name.lower()))
+        self.syntax_filepath = p.join(self.workspace, '{}.fbs'.format(table.type_name.lower()))
         with open(self.syntax_filepath, 'w+') as fp:
             buffer = io.StringIO()
             self.__generate_syntax(table, buffer)
@@ -409,7 +424,6 @@ class SheetSerializer(object):
         assert table.type == FieldType.table
         c = column + 1
         assert table.member_count > 0
-        table.name = self.__get_table_name(table.name, prefix=sheet.name)
         table.offset = c
         c = self.__parse_table(table, sheet, c, depth=depth + 1)
         array.table = table
@@ -418,6 +432,7 @@ class SheetSerializer(object):
             while c < sheet.ncols:
                 element = TableFieldObject(table.member_count)
                 element.name = table.name
+                element.type_name = table.type_name
                 c = self.__parse_table(element, sheet, c, depth=depth + 1)
                 assert element.equal(table), element
                 count += 1
@@ -476,6 +491,7 @@ class SheetSerializer(object):
             if enum_field.enum not in self.__enum_map:
                 self.__enum_map[enum_field.enum] = {}
             enum_field.case_map = self.__enum_map.get(enum_field.enum)
+            enum_field.hook_default()
             field = enum_field
         elif field_type == 'DateTime':
             field.type = FieldType.date
@@ -486,7 +502,7 @@ class SheetSerializer(object):
 
     def __parse_table(self, table:TableFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
         member_fields = table.member_fields
-        self.log(depth, '[TABLE] col:{} member_count:{} name:{}'.format(self.abc(column), table.member_count, table.name))
+        self.log(depth, '[TABLE] pos:{} member_count:{} type:{}'.format(self.abc(column), table.member_count, table.type_name))
         c = column
         while c < sheet.ncols:
             field = self.__parse_field(sheet, column=c, depth=depth + 1) # type: FieldObject
@@ -512,7 +528,7 @@ class SheetSerializer(object):
     def parse_syntax(self, sheet:xlrd.sheet.Sheet):
         self.__sheet = sheet
         self.__root = TableFieldObject()
-        self.__root.name = sheet.name
+        self.__root.type_name = sheet.name
         self.__parse_table(self.__root, sheet, 0)
         return self.__root
 
@@ -529,6 +545,7 @@ class SheetSerializer(object):
         visit_map:dict[str, bool] = {}
         for field in self.__field_map.values():
             if not isinstance(field, EnumFieldObject): continue
+            field.hook_default()
             if field.enum in visit_map: continue
             field.import_cases(self.__get_unique_values(field.offset))
             visit_map[field.enum] = True
@@ -537,20 +554,29 @@ class SheetSerializer(object):
         encoder.save_syntax(table=self.__root)
         with open(self.__enum_filepath, 'w+') as fp:
             json.dump(self.__enum_map, fp, indent=4)
-            print('+ {}'.format(self.__enum_filepath))
-            fp.seek(0)
-            print(fp.read())
+            # print('+ {}'.format(self.__enum_filepath))
+            # fp.seek(0)
+            # print(fp.read())
 
 if __name__ == '__main__':
-    import sys
-    book = xlrd.open_workbook(sys.argv[1])
+    import sys, argparse
+    arguments = argparse.ArgumentParser()
+    arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg')
+    arguments.add_argument('--book-file', '-f', required=True)
+    arguments.add_argument('--use-protobuf', '-u', action='store_true')
+    options = arguments.parse_args(sys.argv[1:])
+    book = xlrd.open_workbook(options.book_file)
     for sheet_name in book.sheet_names(): # type: str
         if not sheet_name.isupper(): continue
         serializer = SheetSerializer()
         try:
             serializer.parse_syntax(book.sheet_by_name(sheet_name))
-            encoder = ProtobufEncoder(workspace='/Users/larryhou/Downloads/flatcfg')
+            if options.use_protobuf:
+                encoder = ProtobufEncoder(workspace=options.workspace)
+            else:
+                encoder = FlatbufEncoder(workspace=options.workspace)
             encoder.set_package_name('dataconfig')
             serializer.pack(encoder)
         except Exception: pass
+        break
 

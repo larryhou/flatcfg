@@ -578,6 +578,7 @@ if __name__ == '__main__':
     arguments.add_argument('--book-file', '-f', nargs='+', required=True)
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
     arguments.add_argument('--debug', '-d', action='store_true')
+    arguments.add_argument('--error', '-e', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -593,7 +594,10 @@ if __name__ == '__main__':
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
                 encoder.set_package_name('dataconfig')
                 serializer.pack(encoder)
-            except Exception: continue
+            except Exception as error:
+                if options.error: raise error
+                else: continue
+        book.release_resources()
 
 
 

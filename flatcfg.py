@@ -566,7 +566,6 @@ if __name__ == '__main__':
     arguments.add_argument('--book-file', '-f', nargs='+', required=True)
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
-    import time
     for book_filepath in options.book_file:
         book = xlrd.open_workbook(book_filepath)
         for sheet_name in book.sheet_names(): # type: str

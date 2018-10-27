@@ -171,7 +171,7 @@ class Codec(object):
         elif t == FieldType.bool: return self.parse_bool(v), 'false'
         else: return v, ''
 
-    def uniform_name(self, v:str):
+    def python_name(self, v:str):
         if v.find('_') > 0:
             return ''.join([x.title() for x in v.split('_')])
         else: return v[0].upper() + v[1:]
@@ -425,9 +425,9 @@ class SheetSerializer(Codec):
         return label
 
     def __get_table_name(self, field_name:str, prefix:str = None)->str:
-        table_name = self.uniform_name(field_name)
+        table_name = self.python_name(field_name)
         if prefix and prefix.find('_'):
-            prefix = self.uniform_name(prefix)
+            prefix = self.python_name(prefix)
         return prefix + table_name if prefix else table_name
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:

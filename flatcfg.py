@@ -131,20 +131,10 @@ class TableFieldObject(FieldObject):
     def __repr__(self):
         return '{} type:{} member_count:{}'.format(super(TableFieldObject, self).__repr__(), self.type_name, len( self.member_fields))
 
-class ConfigEncoder(object):
-    def __init__(self, workspace:str):
-        self.package_name: str = ''
-        self.enum_filepath: str = None
-        self.enum_filename: str = None
-        self.syntax_filepath: str = None
-        self.sheet: xlrd.sheet.Sheet = None
-        self.table: TableFieldObject = None
-        assert workspace
-        if not p.exists(workspace): os.makedirs(workspace)
-        self.workspace:str = workspace
 
-    def set_package_name(self, package_name:str):
-        self.package_name = package_name
+class Codec(object):
+    def __init__(self):
+        pass
 
     def opt(self, v:str)->str:
         return re.sub(r'\.0$', '', v) if self.is_int(v) else v
@@ -172,14 +162,30 @@ class ConfigEncoder(object):
         return self.parse_int(v) != 0 if v else False
 
     def parse_array(self, v:str):
-        return [self.opt(x) if self else x for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
+        return [self.opt(x) for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
 
-    def parse_value(self, v:str, t:FieldType):
-        if t in (FieldType.array, FieldType.table): return v
-        elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return self.parse_int(v)
-        elif t == FieldType.double or re.match(r'^float\d*$', t.name): return self.parse_float(v)
-        elif t == FieldType.bool: return self.parse_bool(v)
-        else: return v
+    def parse_value(self, v:str, t:FieldType)->(any, str):
+        if t in (FieldType.array, FieldType.table): return v, ''
+        elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return self.parse_int(v), '0'
+        elif t == FieldType.double or re.match(r'^float\d*$', t.name): return self.parse_float(v), '0'
+        elif t == FieldType.bool: return self.parse_bool(v), 'false'
+        else: return v, ''
+
+class ConfigEncoder(Codec):
+    def __init__(self, workspace:str):
+        super(ConfigEncoder, self).__init__()
+        self.package_name: str = ''
+        self.enum_filepath: str = None
+        self.enum_filename: str = None
+        self.syntax_filepath: str = None
+        self.sheet: xlrd.sheet.Sheet = None
+        self.table: TableFieldObject = None
+        assert workspace
+        if not p.exists(workspace): os.makedirs(workspace)
+        self.workspace:str = workspace
+
+    def set_package_name(self, package_name:str):
+        self.package_name = package_name
 
     def get_indent(self, depth:int)->str:
         return ' '*depth*4
@@ -368,8 +374,9 @@ class FlatbufEncoder(ConfigEncoder):
             print('+ {}'.format(self.syntax_filepath))
             print(fp.read())
 
-class SheetSerializer(object):
+class SheetSerializer(Codec):
     def __init__(self, debug = True):
+        super(SheetSerializer, self).__init__()
         self.__type_map:dict[str, any] = vars(FieldType)
         self.__rule_map:dict[str, any] = vars(FieldRule)
         self.__debug:bool = debug
@@ -384,10 +391,10 @@ class SheetSerializer(object):
                 self.__enum_map: dict[str, dict[str, int]] = json.load(fp)
 
     def __parse_int(self, v):
-        return int(re.sub(r'\.0$', '', v))
+        return self.parse_int(v)
 
     def __is_int(self, v:str):
-        return re.match(r'^\d+\.0$', v) is not None
+        return self.is_int(v)
 
     def __parse_access(self, v:str)->FieldAccess:
         v = v.lower()
@@ -496,6 +503,8 @@ class SheetSerializer(object):
         elif field_type == 'DateTime':
             field.type = FieldType.date
         assert field.name and field.type, field
+        if not field.default:
+            _, field.default = self.parse_value('', field.type)
         self.log(depth, '{:2d} {:2s} {}'.format(c, self.abc(c), field))
         self.__field_map[field.offset] = field
         return field
@@ -537,7 +546,7 @@ class SheetSerializer(object):
         for r in range(ROW_DATA_INDEX, self.__sheet.nrows):
             cell = self.__sheet.cell(r, column)
             if cell.ctype != xlrd.XL_CELL_TEXT: continue
-            value_list = ConfigEncoder.parse_array(None, str(cell.value).strip())
+            value_list = self.parse_array(str(cell.value).strip())
             for field_value in value_list:
                 if field_value not in unique_values: unique_values.append(field_value)
         return unique_values
@@ -573,8 +582,7 @@ if __name__ == '__main__':
             serializer = SheetSerializer()
             try:
                 serializer.parse_syntax(book.sheet_by_name(sheet_name))
-            except Exception:
-                continue
+            except Exception: continue
             if options.use_protobuf:
                 encoder = ProtobufEncoder(workspace=options.workspace)
             else:

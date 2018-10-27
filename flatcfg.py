@@ -171,9 +171,9 @@ class Codec(object):
         elif t == FieldType.bool: return self.parse_bool(v), 'false'
         else: return v, ''
 
-class ConfigEncoder(Codec):
+class BookEncoder(Codec):
     def __init__(self, workspace:str):
-        super(ConfigEncoder, self).__init__()
+        super(BookEncoder, self).__init__()
         self.package_name: str = ''
         self.enum_filepath: str = None
         self.enum_filename: str = None
@@ -199,7 +199,7 @@ class ConfigEncoder(Codec):
     def save_syntax(self, table: TableFieldObject):
         pass
 
-class ProtobufEncoder(ConfigEncoder):
+class ProtobufEncoder(BookEncoder):
     def __init__(self, workspace:str):
         super(ProtobufEncoder, self).__init__(workspace)
         self.enum_filename = '{}.proto'.format(SHARED_ENUM_NAME)
@@ -286,7 +286,7 @@ class ProtobufEncoder(ConfigEncoder):
             print('+ {}'.format(self.syntax_filepath))
             print(fp.read())
 
-class FlatbufEncoder(ConfigEncoder):
+class FlatbufEncoder(BookEncoder):
     def __init__(self, workspace:str):
         super(FlatbufEncoder, self).__init__(workspace)
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
@@ -332,9 +332,9 @@ class FlatbufEncoder(ConfigEncoder):
             else:
                 assert member.type, member
                 buffer.write(member.type.name)
-                if member.name.lower() == 'id': buffer.write(' (key)')
             if member.type not in (FieldType.table, FieldType.array):
                 if member.default: buffer.write(' = {}'.format(member.default))
+            if member.name.lower() == 'id': buffer.write('(key)')
             buffer.write(';')
             if member.description: buffer.write(' // {!r}'.format(member.description))
             buffer.write('\n')
@@ -551,7 +551,7 @@ class SheetSerializer(Codec):
                 if field_value not in unique_values: unique_values.append(field_value)
         return unique_values
 
-    def pack(self, encoder:ConfigEncoder):
+    def pack(self, encoder:BookEncoder):
         visit_map:dict[str, bool] = {}
         for field in self.__field_map.values():
             if not isinstance(field, EnumFieldObject): continue

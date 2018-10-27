@@ -101,8 +101,9 @@ class BytesEncoder(object):
         self.package_name = ''
         self.enum_filepath = p.join(p.dirname(p.abspath(__file__)), 'shared_enum.json')
         self.enum_map:dict[str, dict[str, int]] = {}
-        with open(self.enum_filepath) as fp:
-            self.enum_map:dict[str, dict[str, int]] = json.load(fp)
+        if p.exists(self.enum_filepath):
+            with open(self.enum_filepath) as fp:
+                self.enum_map:dict[str, dict[str, int]] = json.load(fp)
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -209,6 +210,7 @@ class SheetSerializer(object):
         self.__debug:bool = debug
         self.__root:TableFieldObject = None
         self.__sheet:xlrd.sheet.Sheet = None
+        self.__field_map:dict[int, FieldObject] = {}
 
     def __parse_int(self, v):
         return int(re.sub(r'\.0$', '', v))
@@ -243,14 +245,9 @@ class SheetSerializer(object):
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
         self.log(depth, '[ARRAY] col:{} count:{}'.format(self.abc(column-1), array.count))
-        array.type = FieldType.array
-        field, field_type = self.__parse_field(sheet, column, depth=depth + 1)
+        table:TableFieldObject = self.__parse_field(sheet, column, depth=depth + 1)
         c = column + 1
-        assert self.__is_int(field_type)
-        member_count = self.__parse_int(field_type)
-        assert member_count > 0
-        table = TableFieldObject(member_count)
-        table.fill(field)
+        assert table.member_count > 0
         table.name = self.__get_table_name(table.name, prefix=sheet.name)
         table.offset = c
         c = self.__parse_table(table, sheet, c, depth=depth + 1)
@@ -271,14 +268,14 @@ class SheetSerializer(object):
             raise SyntaxError()
         else: return c
 
-    def __parse_field(self, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->(FieldObject, str):
+    def __parse_field(self, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->FieldObject:
         c = column
         type_map = self.__type_map
         rule_map = self.__rule_map
         cell_type = sheet.cell_type(ROW_RULE_INDEX, c)
-        if cell_type != xlrd.XL_CELL_TEXT: return None, None
+        if cell_type != xlrd.XL_CELL_TEXT: return None
         field_rule = sheet.cell_value(ROW_RULE_INDEX, c).strip()  # type: str
-        if field_rule == '*': return None, None
+        if field_rule == '*': return None
         field_type = str(sheet.cell_value(ROW_TYPE_INDEX, c)).strip()  # type: str
         field_name = str(sheet.cell_value(ROW_NAME_INDEX, c)).strip()  # type: str
         field_aces = str(sheet.cell_value(ROW_ACES_INDEX, c)).strip()  # type: str
@@ -298,13 +295,15 @@ class SheetSerializer(object):
         field.offset = c
         if self.__is_int(field_type):
             num = self.__parse_int(field_type)
-            if field.rule == FieldRule.required:
+            if field.rule == FieldRule.repeated:
                 nest_array = ArrayFieldObject(num)
                 nest_array.fill(field)
+                nest_array.type = FieldType.array
                 field = nest_array
             else:
                 nest_table = TableFieldObject(num)
                 nest_table.fill(field)
+                nest_table.type = FieldType.table
                 nest_table.name = self.__get_table_name(nest_table.name, prefix=sheet.name)
                 field = nest_table
         elif field_type.startswith('enum.'):
@@ -314,32 +313,23 @@ class SheetSerializer(object):
         elif field_type == 'DateTime':
             field.type = FieldType.date
         self.log(depth, '{:2d} {:2s} {}'.format(c, self.abc(c), field))
-        return field, field_type
+        self.__field_map[field.offset] = field
+        return field
 
     def __parse_table(self, table:TableFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
         member_fields = table.member_fields
-        table.type = FieldType.table
         self.log(depth, '[TABLE] col:{} member_count:{} name:{}'.format(self.abc(column), table.member_count, table.name))
         c = column
         while c < sheet.ncols:
-            field, field_type = self.__parse_field(sheet, column=c, depth=depth + 1) # type: FieldObject, str
+            field = self.__parse_field(sheet, column=c, depth=depth + 1) # type: FieldObject
             c += 1
             if not field: continue
-            if self.__is_int(field_type):
-                num = self.__parse_int(field_type)
-                if field.rule == FieldRule.repeated: # array
-                    nest_array = ArrayFieldObject(num)
-                    nest_array.fill(field)
-                    field = nest_array
-                    c = self.__parse_array(nest_array, sheet, c, depth=depth + 1) # parse array
-                else: # table
-                    nest_table = TableFieldObject(num)
-                    nest_table.fill(field)
-                    nest_table.name = self.__get_table_name(nest_table.name, prefix=sheet.name)
-                    field = nest_table
-                    c = self.__parse_table(nest_table, sheet, c, depth=depth + 1)
-            else: # simple
-                field.size = 1
+            if isinstance(field, ArrayFieldObject):
+                assert field.type == FieldType.array
+                c = self.__parse_array(field, sheet, c, depth=depth + 1)  # parse array
+            elif isinstance(field, TableFieldObject):
+                assert field.type == FieldType.table
+                c = self.__parse_table(field, sheet, c, depth=depth + 1)
             assert not table.has_member(field.name), '{} {}'.format(field.name, self.abc(field.offset))
             member_fields.append(field)
             if 0 < table.member_count == len(member_fields):

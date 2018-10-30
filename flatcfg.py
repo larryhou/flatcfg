@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-import enum, xlrd, re, string, io, json, os
+import enum, xlrd, re, io, json, os, hashlib
 import os.path as p
 from typing import Dict
 import operator
 import flatbuffers
-from flatbuffers.builder import Builder as FlatbufferBuilder
 
 ROW_RULE_INDEX, \
 ROW_TYPE_INDEX, \
@@ -154,6 +153,7 @@ class Codec(object):
 
     def abc(self, index):
         label = ''
+        import string
         num = len(string.ascii_uppercase)
         if index >= num:
             label += string.ascii_uppercase[int(index / num) - 1]
@@ -354,7 +354,11 @@ class FlatbufEncoder(BookEncoder):
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         self.module_map = {}
-        self.cursor = ROW_DATA_INDEX
+        self.cursor = -1
+        self.string_offsets:dict[str, int] = {}
+
+    def reset(self):
+        self.__init__(self.workspace, self.debug)
 
     def __generate_enums(self, enum_map:Dict[str, Dict[str, int]], buffer:io.StringIO = None)->str:
         if not buffer: buffer = io.StringIO()
@@ -418,7 +422,13 @@ class FlatbufEncoder(BookEncoder):
     def __encode_array(self, module_name, field): # type: (str, ArrayFieldObject)->int
         table_size = len(field.table.member_fields)
         item_offsets:list[int] = []
-        for n in range(field.count):
+
+        item_count = field.count
+        cell = self.sheet.cell(self.cursor, field.offset)
+        if cell.ctype != xlrd.XL_CELL_EMPTY:
+            count = self.parse_int(str(cell.value))
+            if 0 < count < field.count: item_count = count
+        for n in range(item_count):
             column_offset = table_size * n
             offset = self.__encode_table(field.table, column_offset)
             item_offsets.append(offset)
@@ -435,11 +445,11 @@ class FlatbufEncoder(BookEncoder):
     def __encode_scalar(self, v:any, field:FieldObject):
         ftype = field.type
         builder = self.builder
-        method = 'Prepend{}'.format(ftype.name.title())
+        method_name = 'Prepend{}'.format(ftype.name.title())
         if ftype in (FieldType.table, FieldType.array, FieldType.string):
             builder.PrependInt32(v) # offset
-        elif hasattr(builder, method):
-            builder.__getattribute__(method)(v)
+        elif hasattr(builder, method_name):
+            builder.__getattribute__(method_name)(v)
         elif ftype == FieldType.short:
             builder.PrependInt16(v)
         elif ftype == FieldType.ushort:
@@ -461,10 +471,18 @@ class FlatbufEncoder(BookEncoder):
         elif ftype == FieldType.duration:
             builder.PrependUint32(v)
         else:
-            raise SyntaxError('{!r}:{} not a scalar value'.format(v, ftype.name))
+            raise SyntaxError('{!r}:{} not a scalar value {}'.format(v, ftype.name, field))
 
     def __encode_string(self, v:str)->int:
-        return self.builder.CreateString(v)
+        md5 = hashlib.md5()
+        md5.update(v.encode('utf-8'))
+        uuid = md5.hexdigest()
+        if uuid in self.string_offsets:
+            return self.string_offsets[uuid]
+        else:
+            offset = self.builder.CreateString(v)
+            self.string_offsets[uuid] = offset
+            return offset
 
     def __encode_table(self, table, column_offset = 0): # type: (TableFieldObject, int)->int
         offset_map:dict[str, int] = {}
@@ -489,7 +507,7 @@ class FlatbufEncoder(BookEncoder):
             else:
                 offset = -1
             if offset >= 0: offset_map[field.name] = offset
-        print(offset_map)
+        # print(offset_map)
         self.start_object(module_name)
         for field in table.member_fields:
             fv = str(row_items[field.offset + column_offset].value).strip()
@@ -526,7 +544,7 @@ class FlatbufEncoder(BookEncoder):
 
     def start_vector(self, module_name:str, field_name:str, item_count:int):
         name = '{}Start{}Vector'.format(module_name, self.make_camel(field_name))
-        print('- {}'.format(name))
+        print('- {}\n'.format(name))
         module = self.module_map.get(module_name)  # type: dict
         module.__getattribute__(name)(self.builder, item_count)
 
@@ -547,10 +565,27 @@ class FlatbufEncoder(BookEncoder):
 
     def encode(self):
         self.module_map = self.__load_modules()
+        self.builder = flatbuffers.builder.Builder(1*1024*1024)
+        item_offsets:list[int] = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
             self.cursor = r
             offset = self.__encode_table(self.table)
             print('{} offset:{}'.format(self.table.type_name, offset))
+            item_offsets.append(offset)
+        xsheet_name = self.sheet.name  # type: str
+        module_name = '{}_ARRAY'.format(xsheet_name)
+        self.start_vector(module_name, 'items', len(item_offsets))
+        for offset in item_offsets:
+            self.builder.PrependInt32(offset)
+        item_vector = self.end_vector(len(item_offsets))
+        self.start_object(module_name)
+        self.add_field(module_name, 'items', item_vector)
+        root_table = self.end_object(module_name)
+        self.builder.Finish(root_table)
+        output_filepath = p.join(self.workspace, '{}.bin'.format(xsheet_name.lower()))
+        with open(output_filepath, 'wb') as fp:
+            fp.write(self.builder.Output())
+            print('+ {} {:,}'.format(output_filepath, fp.tell()))
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)
@@ -604,16 +639,6 @@ class SheetSerializer(Codec):
     def log(self, indent=0, *kwargs):
         if not self.__debug: return
         print(*kwargs) if indent <= 0 else print(' '*(indent*4-1), *kwargs)
-
-    def abc(self, index):
-        label = ''
-        num = len(string.ascii_uppercase)
-        if index >= num:
-            label += string.ascii_uppercase[int(index / num) - 1]
-            label += string.ascii_uppercase[index % num]
-        else:
-            label += string.ascii_uppercase[index]
-        return label
 
     def __get_table_name(self, field_name:str, prefix:str = None)->str:
         table_name = self.make_camel(field_name)
@@ -789,6 +814,7 @@ if __name__ == '__main__':
             except Exception as error:
                 if options.error: raise error
                 else: continue
+            exit()
         book.release_resources()
 
 

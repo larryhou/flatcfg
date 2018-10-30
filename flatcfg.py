@@ -13,7 +13,7 @@ ROW_DESC_INDEX, \
 ROW_DATA_INDEX = range(6)
 
 SHARED_ENUM_NAME = 'shared_enum'
-DONT_MAKE_CAMEL = True
+ROOT_CLASS_TEMPLATE = '{}_ARRAY'
 
 class FieldType(enum.Enum):
     float, float32, float64, double, \
@@ -447,7 +447,7 @@ class FlatbufEncoder(BookEncoder):
         builder = self.builder
         method_name = 'Prepend{}'.format(ftype.name.title())
         if ftype in (FieldType.table, FieldType.array, FieldType.string):
-            builder.PrependInt32(v) # offset
+            builder.PrependUOffsetTRelative(v) # offset
         elif hasattr(builder, method_name):
             builder.__getattribute__(method_name)(v)
         elif ftype == FieldType.short:
@@ -488,7 +488,9 @@ class FlatbufEncoder(BookEncoder):
         offset_map:dict[str, int] = {}
         module_name = table.type_name
         row_items = self.sheet.row(self.cursor)
-        for field in table.member_fields:
+        member_count = len(table.member_fields)
+        for n in range(member_count):
+            field = table.member_fields[n]
             # print(field, column_offset)
             fv = str(row_items[field.offset + column_offset].value).strip()
             if isinstance(field, TableFieldObject):
@@ -509,7 +511,8 @@ class FlatbufEncoder(BookEncoder):
             if offset >= 0: offset_map[field.name] = offset
         # print(offset_map)
         self.start_object(module_name)
-        for field in table.member_fields:
+        for n in range(member_count):
+            field = table.member_fields[n]
             fv = str(row_items[field.offset + column_offset].value).strip()
             if field.name in offset_map:
                 fv = offset_map.get(field.name)
@@ -536,32 +539,38 @@ class FlatbufEncoder(BookEncoder):
             module_map[module_name] = scope_envs.get(module_name)
         return module_map
 
+    def ptr(self, v:int)->str:
+        return '&{:08X}:{}'.format(v, v)
+
     def start_object(self, module_name:str):
         name = '{}Start'.format(module_name)
         print('- {}'.format(name))
         module = self.module_map.get(module_name) # type: dict
-        module.__getattribute__(name)(self.builder)
+        getattr(module, name)(self.builder)
 
     def start_vector(self, module_name:str, field_name:str, item_count:int):
         name = '{}Start{}Vector'.format(module_name, self.make_camel(field_name))
-        print('- {}\n'.format(name))
+        print('- {} #{}'.format(name, item_count))
         module = self.module_map.get(module_name)  # type: dict
-        module.__getattribute__(name)(self.builder, item_count)
+        getattr(module, name)(self.builder, item_count)
 
     def end_object(self, module_name:str)->int:
         name = '{}End'.format(module_name)
-        print('- {}\n'.format(name))
         module = self.module_map.get(module_name) # type: dict
-        return module.__getattribute__(name)(self.builder)
+        offset = getattr(module, name)(self.builder)
+        print('- {} {}\n'.format(name, self.ptr(offset)))
+        return offset
 
     def end_vector(self, item_count:int)->int:
-        return self.builder.EndVector(item_count)
+        offset = self.builder.EndVector(item_count)
+        print('- EndVector {}\n'.format(self.ptr(offset)))
+        return offset
 
     def add_field(self, module_name:str, field_name:str, v:any):
         name = '{}Add{}'.format(module_name, self.make_camel(field_name))
-        print('- {} = {}'.format(name, v))
+        print('- {} = {!r}'.format(name, v))
         module = self.module_map.get(module_name)  # type: dict
-        module.__getattribute__(name)(self.builder, v)
+        getattr(module, name)(self.builder, v)
 
     def encode(self):
         self.module_map = self.__load_modules()
@@ -570,13 +579,15 @@ class FlatbufEncoder(BookEncoder):
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
             self.cursor = r
             offset = self.__encode_table(self.table)
-            print('{} offset:{}'.format(self.table.type_name, offset))
+            print('{} {}'.format(self.table.type_name, self.ptr(offset)))
             item_offsets.append(offset)
         xsheet_name = self.sheet.name  # type: str
         module_name = '{}_ARRAY'.format(xsheet_name)
         self.start_vector(module_name, 'items', len(item_offsets))
-        for offset in item_offsets:
-            self.builder.PrependInt32(offset)
+        item_count = len(item_offsets)
+        for n in range(item_count):
+            offset = item_offsets[item_count - n - 1]
+            self.builder.PrependUOffsetTRelative(offset)
         item_vector = self.end_vector(len(item_offsets))
         self.start_object(module_name)
         self.add_field(module_name, 'items', item_vector)
@@ -585,7 +596,14 @@ class FlatbufEncoder(BookEncoder):
         output_filepath = p.join(self.workspace, '{}.bin'.format(xsheet_name.lower()))
         with open(output_filepath, 'wb') as fp:
             fp.write(self.builder.Output())
-            print('+ {} {:,}'.format(output_filepath, fp.tell()))
+
+        # verify
+        with open(output_filepath, 'rb') as fp:
+            buffer = bytearray(fp.read())
+            item_array_class = getattr(self.module_map.get(module_name), module_name) # type: object
+            item_array = getattr(item_array_class, 'GetRootAs{}'.format(module_name))(buffer, 0) # type: object
+            print('+', fp.tell(), getattr(item_array, 'ItemsLength')(), len(item_offsets))
+
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)

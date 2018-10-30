@@ -354,7 +354,7 @@ class FlatbufEncoder(BookEncoder):
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         self.module_map = {}
-        self.index = ROW_DATA_INDEX
+        self.cursor = ROW_DATA_INDEX
 
     def __generate_enums(self, enum_map:Dict[str, Dict[str, int]], buffer:io.StringIO = None)->str:
         if not buffer: buffer = io.StringIO()
@@ -417,11 +417,10 @@ class FlatbufEncoder(BookEncoder):
 
     def __encode_array(self, module_name, field): # type: (str, ArrayFieldObject)->int
         table_size = len(field.table.member_fields)
-        base_index = field.offset + 2
         item_offsets:list[int] = []
         for n in range(field.count):
-            index = base_index + table_size * n
-            offset = self.__encode_table(field.table, index)
+            column_offset = table_size * n
+            offset = self.__encode_table(field.table, column_offset)
             item_offsets.append(offset)
         return self.__encode_vector(module_name, item_offsets, field)
 
@@ -467,15 +466,15 @@ class FlatbufEncoder(BookEncoder):
     def __encode_string(self, v:str)->int:
         return self.builder.CreateString(v)
 
-    def __encode_table(self, table, index = -1): # type: (TableFieldObject, int)->int
+    def __encode_table(self, table, column_offset = 0): # type: (TableFieldObject, int)->int
         offset_map:dict[str, int] = {}
         module_name = table.type_name
-        row_items = self.sheet.row(self.index)
+        row_items = self.sheet.row(self.cursor)
         for field in table.member_fields:
-            # print(field)
-            fv = str(row_items[field.offset].value).strip()
+            # print(field, column_offset)
+            fv = str(row_items[field.offset + column_offset].value).strip()
             if isinstance(field, TableFieldObject):
-                offset = self.__encode_table(field, index)
+                offset = self.__encode_table(field, column_offset)
             elif isinstance(field, ArrayFieldObject):
                 offset = self.__encode_array(module_name, field)
             elif field.rule == FieldRule.repeated:
@@ -493,7 +492,7 @@ class FlatbufEncoder(BookEncoder):
         print(offset_map)
         self.start_object(module_name)
         for field in table.member_fields:
-            fv = str(row_items[field.offset].value).strip()
+            fv = str(row_items[field.offset + column_offset].value).strip()
             if field.name in offset_map:
                 fv = offset_map.get(field.name)
             else:
@@ -549,9 +548,9 @@ class FlatbufEncoder(BookEncoder):
     def encode(self):
         self.module_map = self.__load_modules()
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
-            offset = self.__encode_table(self.table, -1)
+            self.cursor = r
+            offset = self.__encode_table(self.table)
             print('{} offset:{}'.format(self.table.type_name, offset))
-            # break
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)

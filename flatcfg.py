@@ -3,6 +3,8 @@ import enum, xlrd, re, string, io, json, os
 import os.path as p
 from typing import Dict
 import operator
+import flatbuffers
+from flatbuffers.builder import Builder as FlatbufferBuilder
 
 ROW_RULE_INDEX, \
 ROW_TYPE_INDEX, \
@@ -12,6 +14,7 @@ ROW_DESC_INDEX, \
 ROW_DATA_INDEX = range(6)
 
 SHARED_ENUM_NAME = 'shared_enum'
+DONT_MAKE_CAMEL = True
 
 class FieldType(enum.Enum):
     float, float32, float64, double, \
@@ -20,6 +23,16 @@ class FieldType(enum.Enum):
     short, ushort, byte, ubyte, long, ulong, \
     bool, string = range(20) # standard protobuf scalar types
     date, duration, enum, table, array = tuple(x + 100 for x in range(5)) # extend field types
+
+class type_presets(object):
+    ints = (FieldType.byte, FieldType.int8, FieldType.short, FieldType.int16, FieldType.int32, FieldType.int64, FieldType.long)
+    uints = (FieldType.ubyte, FieldType.uint8, FieldType.ushort, FieldType.uint16, FieldType.uint32, FieldType.uint64, FieldType.ulong)
+    floats = (FieldType.float, FieldType.float32, FieldType.double, FieldType.float64)
+    size_1 = (FieldType.byte, FieldType.ubyte, FieldType.bool, FieldType.int8, FieldType.uint8, FieldType.enum)
+    size_2 = (FieldType.short, FieldType.int16, FieldType.ushort, FieldType.uint16)
+    size_4 = (FieldType.int32, FieldType.uint32, FieldType.float, FieldType.float32, FieldType.date, FieldType.duration)
+    size_8 = (FieldType.long, FieldType.int64, FieldType.ulong, FieldType.uint64, FieldType.double, FieldType.float64)
+    nests = (FieldType.table, FieldType.array)
 
 class FieldRule(enum.Enum):
     optional, required, repeated = range(3)
@@ -164,6 +177,17 @@ class Codec(object):
     def parse_array(self, v:str):
         return [self.opt(x) for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
 
+    def parse_date(self, v:str)->int:
+        return 0
+
+    def parse_duration(self, v:str)->int:
+        return 0
+
+    def parse_enum(self, case:str, type_name:str)->int:
+        enum_vars = eval('vars({})'.format(type_name))  # type: dict[str, any]
+        assert case in enum_vars
+        return enum_vars.get(case)
+
     def parse_value(self, v:str, t:FieldType)->(any, str):
         if t in (FieldType.array, FieldType.table): return v, ''
         elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return self.parse_int(v), '0'
@@ -171,10 +195,35 @@ class Codec(object):
         elif t == FieldType.bool: return self.parse_bool(v), 'false'
         else: return v, ''
 
-    def python_name(self, v:str):
-        if v.find('_') > 0:
-            return ''.join([x.title() for x in v.split('_')])
-        else: return v[0].upper() + v[1:]
+    def parse_scalar(self, v:str, ftype:FieldType):
+        if ftype in type_presets.ints or ftype in type_presets.uints:
+            return self.parse_int(v)
+        elif ftype in type_presets.floats:
+            return self.parse_float(v)
+        elif ftype == FieldType.bool:
+            return self.parse_bool(v)
+        elif ftype == FieldType.date:
+            return self.parse_date(v)
+        elif ftype == FieldType.duration:
+            return self.parse_duration(v)
+        elif ftype == FieldType.enum:
+            return self.parse_enum(v)
+        else: raise SyntaxError('{!r} type:{!r}'.format(v, ftype))
+
+    def make_camel(self, v:str, first:bool = True)->str:
+        name = ''
+        need_uppercase = first
+        if v.isupper(): v = v.lower()
+        for char in v:
+            if char == '_':
+                need_uppercase = True
+                continue
+            if need_uppercase:
+                name += char.upper()
+                need_uppercase = False
+            else:
+                name += char
+        return name
 
 class BookEncoder(Codec):
     def __init__(self, workspace:str, debug:bool):
@@ -189,6 +238,7 @@ class BookEncoder(Codec):
         if not p.exists(workspace): os.makedirs(workspace)
         self.workspace:str = workspace
         self.debug = debug
+        self.sheet:xlrd.sheet.Sheet = None
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -196,7 +246,10 @@ class BookEncoder(Codec):
     def get_indent(self, depth:int)->str:
         return ' '*depth*4
 
-    def encode(self, sheet:xlrd.sheet.Sheet):
+    def init(self, sheet:xlrd.sheet.Sheet):
+        self.sheet = sheet
+
+    def encode(self):
         pass
 
     def save_enums(self, enum_map: Dict[str, Dict[str, int]]):
@@ -266,8 +319,7 @@ class ProtobufEncoder(BookEncoder):
             buffer.write('{}{} {} items = 1;\n'.format(indent, FieldRule.repeated.name, table.type_name))
             buffer.write('}\n')
 
-    def encode(self, sheet:xlrd.sheet.Sheet):
-        self.sheet = sheet
+    def encode(self):
         pass
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
@@ -300,6 +352,9 @@ class FlatbufEncoder(BookEncoder):
     def __init__(self, workspace:str, debug:bool):
         super(FlatbufEncoder, self).__init__(workspace, debug)
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
+        self.builder = flatbuffers.builder.Builder(1*1024*1024)
+        self.module_map = {}
+        self.index = ROW_DATA_INDEX
 
     def __generate_enums(self, enum_map:Dict[str, Dict[str, int]], buffer:io.StringIO = None)->str:
         if not buffer: buffer = io.StringIO()
@@ -354,13 +409,149 @@ class FlatbufEncoder(BookEncoder):
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer)
         if table.member_count == 0:
-            buffer.write('table {}_ARRAY\n{{\n'.format(table.type_name))
+            array_type_name = '{}_ARRAY'.format(table.type_name)
+            buffer.write('table {}\n{{\n'.format(array_type_name))
             buffer.write('{}items:[{}];\n'.format(indent, table.type_name))
             buffer.write('}\n')
+            buffer.write('root_type {};\n'.format(array_type_name))
 
-    def encode(self, sheet:xlrd.sheet.Sheet):
-        self.sheet = sheet
-        pass
+    def __encode_array(self, module_name, field): # type: (str, ArrayFieldObject)->int
+        table_size = len(field.table.member_fields)
+        base_index = field.offset + 2
+        item_offsets:list[int] = []
+        for n in range(field.count):
+            index = base_index + table_size * n
+            offset = self.__encode_table(field.table, index)
+            item_offsets.append(offset)
+        return self.__encode_vector(module_name, item_offsets, field)
+
+    def __encode_vector(self, module_name, items, field): # type: (str, list[str], FieldObject)->int
+        assert field.rule == FieldRule.repeated
+        item_count = len(items)
+        self.start_vector(module_name, field.name, item_count)
+        for v in items:
+            self.__encode_scalar(v, field)
+        return self.end_vector(item_count)
+
+    def __encode_scalar(self, v:any, field:FieldObject):
+        ftype = field.type
+        builder = self.builder
+        method = 'Prepend{}'.format(ftype.name.title())
+        if ftype in (FieldType.table, FieldType.array, FieldType.string):
+            builder.PrependInt32(v) # offset
+        elif hasattr(builder, method):
+            builder.__getattribute__(method)(v)
+        elif ftype == FieldType.short:
+            builder.PrependInt16(v)
+        elif ftype == FieldType.ushort:
+            builder.PrependUint16(v)
+        elif ftype == FieldType.long:
+            builder.PrependInt64(v)
+        elif ftype == FieldType.ulong:
+            builder.PrependUint64(v)
+        elif ftype == FieldType.float:
+            builder.PrependFloat32(v)
+        elif ftype == FieldType.double:
+            builder.PrependFloat64(v)
+        elif ftype == FieldType.enum:
+            builder.PrependUint8(v)
+        elif ftype == FieldType.ubyte:
+            builder.PrependUint8(v)
+        elif ftype == FieldType.date:
+            builder.PrependUint32(v)
+        elif ftype == FieldType.duration:
+            builder.PrependUint32(v)
+        else:
+            raise SyntaxError('{!r}:{} not a scalar value'.format(v, ftype.name))
+
+    def __encode_string(self, v:str)->int:
+        return self.builder.CreateString(v)
+
+    def __encode_table(self, table, index = -1): # type: (TableFieldObject, int)->int
+        offset_map:dict[str, int] = {}
+        module_name = table.type_name
+        row_items = self.sheet.row(self.index)
+        for field in table.member_fields:
+            # print(field)
+            fv = str(row_items[field.offset].value).strip()
+            if isinstance(field, TableFieldObject):
+                offset = self.__encode_table(field, index)
+            elif isinstance(field, ArrayFieldObject):
+                offset = self.__encode_array(module_name, field)
+            elif field.rule == FieldRule.repeated:
+                items = self.parse_array(fv)
+                if field.type == FieldType.string:
+                    items = [self.__encode_string(x) for x in items]
+                else:
+                    items = [self.parse_scalar(x, field.type) for x in items]
+                offset = self.__encode_vector(module_name, items, field)
+            elif field.type == FieldType.string:
+                offset = self.__encode_string(fv)
+            else:
+                offset = -1
+            if offset >= 0: offset_map[field.name] = offset
+        print(offset_map)
+        self.start_object(module_name)
+        for field in table.member_fields:
+            fv = str(row_items[field.offset].value).strip()
+            if field.name in offset_map:
+                fv = offset_map.get(field.name)
+            else:
+                fv = self.parse_scalar(fv, field.type)
+            self.add_field(module_name, field.name, fv)
+        return self.end_object(table.type_name)
+
+    def __load_modules(self):
+        python_out = p.abspath('{}/p'.format(self.workspace))
+        command = 'flatc -p -o {} {}/*.fbs'.format(python_out, self.workspace)
+        assert os.system(command) == 0
+        module_list = []
+        for base_path, _, file_name_list in os.walk(python_out):
+            sys.path.append(base_path)
+            for file_name in file_name_list:
+                if not file_name.endswith('.py') or file_name.startswith('__'): continue
+                module_name = re.sub(r'\.py$', '', file_name)
+                exec('import {}'.format(module_name))
+                module_list.append(module_name)
+        module_map = {}
+        scope_envs = locals()
+        for module_name in module_list:
+            module_map[module_name] = scope_envs.get(module_name)
+        return module_map
+
+    def start_object(self, module_name:str):
+        name = '{}Start'.format(module_name)
+        print('- {}'.format(name))
+        module = self.module_map.get(module_name) # type: dict
+        module.__getattribute__(name)(self.builder)
+
+    def start_vector(self, module_name:str, field_name:str, item_count:int):
+        name = '{}Start{}Vector'.format(module_name, self.make_camel(field_name))
+        print('- {}'.format(name))
+        module = self.module_map.get(module_name)  # type: dict
+        module.__getattribute__(name)(self.builder, item_count)
+
+    def end_object(self, module_name:str)->int:
+        name = '{}End'.format(module_name)
+        print('- {}\n'.format(name))
+        module = self.module_map.get(module_name) # type: dict
+        return module.__getattribute__(name)(self.builder)
+
+    def end_vector(self, item_count:int)->int:
+        return self.builder.EndVector(item_count)
+
+    def add_field(self, module_name:str, field_name:str, v:any):
+        name = '{}Add{}'.format(module_name, self.make_camel(field_name))
+        print('- {} = {}'.format(name, v))
+        module = self.module_map.get(module_name)  # type: dict
+        module.__getattribute__(name)(self.builder, v)
+
+    def encode(self):
+        self.module_map = self.__load_modules()
+        for r in range(ROW_DATA_INDEX, self.sheet.nrows):
+            offset = self.__encode_table(self.table, -1)
+            print('{} offset:{}'.format(self.table.type_name, offset))
+            # break
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)
@@ -374,6 +565,7 @@ class FlatbufEncoder(BookEncoder):
                 print(fp.read())
 
     def save_syntax(self, table:TableFieldObject):
+        self.table = table
         print('# {}'.format(self.sheet.name))
         self.syntax_filepath = p.join(self.workspace, '{}.fbs'.format(table.type_name.lower()))
         with open(self.syntax_filepath, 'w+') as fp:
@@ -425,9 +617,9 @@ class SheetSerializer(Codec):
         return label
 
     def __get_table_name(self, field_name:str, prefix:str = None)->str:
-        table_name = self.python_name(field_name)
+        table_name = self.make_camel(field_name)
         if prefix and prefix.find('_'):
-            prefix = self.python_name(prefix)
+            prefix = self.make_camel(prefix)
         return prefix + table_name if prefix else table_name
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
@@ -565,19 +757,17 @@ class SheetSerializer(Codec):
             if field.enum in visit_map: continue
             field.import_cases(self.__get_unique_values(field.offset))
             visit_map[field.enum] = True
-        encoder.encode(sheet=self.__sheet)
+        encoder.init(sheet=self.__sheet)
         encoder.save_enums(enum_map=self.__enum_map)
         encoder.save_syntax(table=self.__root)
+        encoder.encode()
         with open(self.__enum_filepath, 'w+') as fp:
             json.dump(self.__enum_map, fp, indent=4)
-            # print('+ {}'.format(self.__enum_filepath))
-            # fp.seek(0)
-            # print(fp.read())
 
 if __name__ == '__main__':
     import sys, argparse
     arguments = argparse.ArgumentParser()
-    arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg')
+    arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg/temp')
     arguments.add_argument('--book-file', '-f', nargs='+', required=True)
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
     arguments.add_argument('--debug', '-d', action='store_true')

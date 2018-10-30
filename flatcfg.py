@@ -610,7 +610,7 @@ class FlatbufEncoder(BookEncoder):
             buffer = bytearray(fp.read())
             item_array_class = getattr(self.module_map.get(module_name), module_name) # type: object
             item_array = getattr(item_array_class, 'GetRootAs{}'.format(module_name))(buffer, 0) # type: object
-            print('+', fp.tell(), getattr(item_array, 'ItemsLength')(), len(item_offsets))
+            print('[+]', fp.tell(), getattr(item_array, 'ItemsLength')(), len(item_offsets), '\n')
 
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):

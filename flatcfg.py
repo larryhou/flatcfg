@@ -166,13 +166,16 @@ class Codec(object):
         return re.match(r'^[+-]?\d+\.0$', v)
 
     def parse_int(self, v:str):
-        return int(re.sub(r'\.0$', '', v)) if v else 0
+        return int(re.sub(r'\.\d+$', '', v)) if v else 0
 
     def parse_float(self, v:str)->float:
         return float(v) if v else 0.0
 
     def parse_bool(self, v:str)->bool:
-        return self.parse_int(v) != 0 if v else False
+        if self.is_int(v):
+            return self.parse_int(v) != 0 if v else False
+        else:
+            return v.lower() == 'true'
 
     def parse_array(self, v:str):
         return [self.opt(x) for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
@@ -203,10 +206,10 @@ class Codec(object):
             return self.parse_duration(v)
         else: raise SyntaxError('{!r} type:{!r}'.format(v, ftype))
 
-    def make_camel(self, v:str, first:bool = True)->str:
+    def make_camel(self, v:str, first:bool = True, force:bool = False)->str:
         name = ''
         need_uppercase = first
-        if v.isupper(): v = v.lower()
+        if force and v.isupper(): v = v.lower()
         for char in v:
             if char == '_':
                 need_uppercase = True
@@ -308,7 +311,8 @@ class ProtobufEncoder(BookEncoder):
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer)
         if table.member_count == 0:
-            buffer.write('message {}_ARRAY\n{{\n'.format(table.type_name))
+            root_message_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
+            buffer.write('message {}\n{{\n'.format(root_message_name))
             buffer.write('{}{} {} items = 1;\n'.format(indent, FieldRule.repeated.name, table.type_name))
             buffer.write('}\n')
 
@@ -406,10 +410,10 @@ class FlatbufEncoder(BookEncoder):
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer)
         if table.member_count == 0:
-            array_type_name = '{}_ARRAY'.format(table.type_name)
+            array_type_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
             buffer.write('table {}\n{{\n'.format(array_type_name))
             buffer.write('{}items:[{}];\n'.format(indent, table.type_name))
-            buffer.write('}\n')
+            buffer.write('}\n\n')
             buffer.write('root_type {};\n'.format(array_type_name))
 
     def __encode_array(self, module_name, field): # type: (str, ArrayFieldObject)->int
@@ -488,7 +492,6 @@ class FlatbufEncoder(BookEncoder):
         member_count = len(table.member_fields)
         for n in range(member_count):
             field = table.member_fields[n]
-            # print(field, column_offset)
             fv = str(row_items[field.offset + column_offset].value).strip()
             if isinstance(field, TableFieldObject):
                 offset = self.__encode_table(field, column_offset)
@@ -524,7 +527,11 @@ class FlatbufEncoder(BookEncoder):
 
     def __load_modules(self):
         python_out = p.abspath('{}/p'.format(self.workspace))
-        command = 'flatc -p -o {} {}/*.fbs'.format(python_out, self.workspace)
+        enum_schema = '{}/{}.fbs'.format(self.workspace, SHARED_ENUM_NAME)
+        data_schema = '{}/{}.fbs'.format(self.workspace, self.sheet.name.lower())
+        import shutil
+        if p.exists(python_out): shutil.rmtree(python_out)
+        command = 'flatc -p -o {} {} {}'.format(python_out, enum_schema, data_schema)
         assert os.system(command) == 0
         module_list = []
         for base_path, _, file_name_list in os.walk(python_out):
@@ -583,7 +590,7 @@ class FlatbufEncoder(BookEncoder):
             print('{} {}'.format(self.table.type_name, self.ptr(offset)))
             item_offsets.append(offset)
         xsheet_name = self.sheet.name  # type: str
-        module_name = '{}_ARRAY'.format(xsheet_name)
+        module_name = ROOT_CLASS_TEMPLATE.format(xsheet_name)
         self.start_vector(module_name, 'items', len(item_offsets))
         item_count = len(item_offsets)
         for n in range(item_count):
@@ -662,7 +669,7 @@ class SheetSerializer(Codec):
     def __get_table_name(self, field_name:str, prefix:str = None)->str:
         table_name = self.make_camel(field_name)
         if prefix and prefix.find('_'):
-            prefix = self.make_camel(prefix)
+            prefix = self.make_camel(prefix, force=True)
         return prefix + table_name if prefix else table_name
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
@@ -793,19 +800,16 @@ class SheetSerializer(Codec):
         return unique_values
 
     def pack(self, encoder:BookEncoder):
-        visit_map:dict[str, bool] = {}
         for field in self.__field_map.values():
             if not isinstance(field, EnumFieldObject): continue
             field.hook_default()
-            if field.enum in visit_map: continue
             field.import_cases(self.__get_unique_values(field.offset))
-            visit_map[field.enum] = True
+        with open(self.__enum_filepath, 'w+') as fp:
+            json.dump(self.__enum_map, fp, indent=4)
         encoder.init(sheet=self.__sheet)
         encoder.save_enums(enum_map=self.__enum_map)
         encoder.save_syntax(table=self.__root)
         encoder.encode()
-        with open(self.__enum_filepath, 'w+') as fp:
-            json.dump(self.__enum_map, fp, indent=4)
 
 if __name__ == '__main__':
     import sys, argparse
@@ -833,7 +837,6 @@ if __name__ == '__main__':
             except Exception as error:
                 if options.error: raise error
                 else: continue
-            exit()
         book.release_resources()
 
 

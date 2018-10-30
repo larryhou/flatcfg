@@ -183,11 +183,6 @@ class Codec(object):
     def parse_duration(self, v:str)->int:
         return 0
 
-    def parse_enum(self, case:str, type_name:str)->int:
-        enum_vars = eval('vars({})'.format(type_name))  # type: dict[str, any]
-        assert case in enum_vars
-        return enum_vars.get(case)
-
     def parse_value(self, v:str, t:FieldType)->(any, str):
         if t in (FieldType.array, FieldType.table): return v, ''
         elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return self.parse_int(v), '0'
@@ -206,8 +201,6 @@ class Codec(object):
             return self.parse_date(v)
         elif ftype == FieldType.duration:
             return self.parse_duration(v)
-        elif ftype == FieldType.enum:
-            return self.parse_enum(v)
         else: raise SyntaxError('{!r} type:{!r}'.format(v, ftype))
 
     def make_camel(self, v:str, first:bool = True)->str:
@@ -442,6 +435,10 @@ class FlatbufEncoder(BookEncoder):
             self.__encode_scalar(v, field)
         return self.end_vector(item_count)
 
+    def parse_enum(self, case_name:str, type_name:str)->int:
+        module = self.module_map.get(type_name) # type: object
+        return getattr(getattr(module, type_name), case_name) if case_name else 0
+
     def __encode_scalar(self, v:any, field:FieldObject):
         ftype = field.type
         builder = self.builder
@@ -501,6 +498,8 @@ class FlatbufEncoder(BookEncoder):
                 items = self.parse_array(fv)
                 if field.type == FieldType.string:
                     items = [self.__encode_string(x) for x in items]
+                elif isinstance(field, EnumFieldObject):
+                    items = [self.parse_enum(x, field.enum) for x in items]
                 else:
                     items = [self.parse_scalar(x, field.type) for x in items]
                 offset = self.__encode_vector(module_name, items, field)
@@ -516,6 +515,8 @@ class FlatbufEncoder(BookEncoder):
             fv = str(row_items[field.offset + column_offset].value).strip()
             if field.name in offset_map:
                 fv = offset_map.get(field.name)
+            elif isinstance(field, EnumFieldObject):
+                fv = self.parse_enum(fv, field.enum)
             else:
                 fv = self.parse_scalar(fv, field.type)
             self.add_field(module_name, field.name, fv)

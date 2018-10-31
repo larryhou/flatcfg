@@ -193,7 +193,7 @@ class Codec(object):
         assert re.match(r'^\d{4}(-\d{2})+ \d{2}(:\d{2})+$', v), '{!r} doesn\'t match with {!r}'.format(v, date_format)
         date = datetime.datetime.strptime(v, date_format) + offset
         seconds = (date - datetime.datetime(1970, 1, 1)).total_seconds()
-        return min(int(seconds), 2**32-1)
+        return min(int(seconds), (1<<32)-1)
 
     def parse_duration(self, v:str)->int:
         components = [self.parse_int(x) for x in re.split(r'\s*[:\uff1a]\s*', v)] # type: list[int]

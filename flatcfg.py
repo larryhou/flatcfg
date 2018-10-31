@@ -383,6 +383,7 @@ class ProtobufEncoder(BookEncoder):
         return getattr(module, name)()
 
     def parse_enum(self, case_name:str, type_name:str)->int:
+        if not case_name: return 0
         module = self.get_module(SHARED_ENUM_NAME.lower())
         enum_type:EnumTypeWrapper = getattr(module, type_name)
         return enum_type.Value(case_name)

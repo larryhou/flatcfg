@@ -742,7 +742,8 @@ class FlatbufEncoder(BookEncoder):
             buffer = io.StringIO()
             self.__generate_syntax(table, buffer)
             buffer.seek(0)
-            fp.write('include "{}";\n\n'.format(self.enum_filename))
+            if include_enum:
+                fp.write('include "{}";\n\n'.format(self.enum_filename))
             if self.package_name:
                 fp.write('namespace {};\n\n'.format(self.package_name))
             fp.write(buffer.read())

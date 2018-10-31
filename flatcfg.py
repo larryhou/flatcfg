@@ -278,7 +278,7 @@ class BookEncoder(Codec):
     def save_enums(self, enum_map: Dict[str, Dict[str, int]]):
         pass
 
-    def save_syntax(self, table: TableFieldObject):
+    def save_syntax(self, table: TableFieldObject, include_enum:bool = True):
         pass
 
     def compile_schemas(self) -> str:
@@ -433,10 +433,10 @@ class ProtobufEncoder(BookEncoder):
             self.cursor = r
             if self.is_cell_empty(self.sheet.cell(r, 0)): continue
             self.__encode_table(self.table, message=items.add())
-        output_filepath = p.join(self.workspace, '{}.bin'.format(self.sheet.name.lower()))
+        output_filepath = p.join(self.workspace, '{}.ppb'.format(self.sheet.name.lower()))
         with open(output_filepath, 'wb') as fp:
             fp.write(root_message.SerializeToString())
-            print('[+] size:{:,} count:{} {!r}'.format(fp.tell(), len(items), output_filepath))
+            print('[+] size:{:,} count:{} {!r}\n'.format(fp.tell(), len(items), output_filepath))
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)
@@ -450,7 +450,7 @@ class ProtobufEncoder(BookEncoder):
                 print('+ {}'.format(self.enum_filepath))
                 print(fp.read())
 
-    def save_syntax(self, table:TableFieldObject):
+    def save_syntax(self, table:TableFieldObject, include_enum:bool = True):
         print('# {}'.format(self.sheet.name))
         self.table = table
         self.syntax_filepath = p.join(self.workspace, '{}.proto'.format(table.type_name.lower()))
@@ -459,7 +459,8 @@ class ProtobufEncoder(BookEncoder):
             self.__generate_syntax(table, buffer)
             buffer.seek(0)
             fp.write('syntax = "proto2";\n')
-            fp.write('import "{}";\n\n'.format(self.enum_filename))
+            if include_enum:
+                fp.write('import "{}";\n\n'.format(self.enum_filename))
             if self.package_name:
                 fp.write('package {};\n\n'.format(self.package_name))
             fp.write(buffer.read())
@@ -711,7 +712,7 @@ class FlatbufEncoder(BookEncoder):
         self.add_field(module_name, 'items', item_vector)
         root_table = self.end_object(module_name)
         self.builder.Finish(root_table)
-        output_filepath = p.join(self.workspace, '{}.bin'.format(xsheet_name.lower()))
+        output_filepath = p.join(self.workspace, '{}.fpb'.format(xsheet_name.lower()))
         with open(output_filepath, 'wb') as fp:
             fp.write(self.builder.Output())
 
@@ -721,7 +722,6 @@ class FlatbufEncoder(BookEncoder):
             item_array_class = getattr(self.module_map.get(module_name), module_name) # type: object
             item_array = getattr(item_array_class, 'GetRootAs{}'.format(module_name))(buffer, 0) # type: object
             print('[+] size={:,} count={} {!r}\n'.format(fp.tell(), getattr(item_array, 'ItemsLength')(), output_filepath))
-
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)
@@ -734,7 +734,7 @@ class FlatbufEncoder(BookEncoder):
                 print('+ {}'.format(self.enum_filepath))
                 print(fp.read())
 
-    def save_syntax(self, table:TableFieldObject):
+    def save_syntax(self, table:TableFieldObject, include_enum:bool = True):
         self.table = table
         print('# {}'.format(self.sheet.name))
         self.syntax_filepath = p.join(self.workspace, '{}.fbs'.format(table.type_name.lower()))
@@ -759,6 +759,7 @@ class SheetSerializer(Codec):
         self.__root:TableFieldObject = None
         self.__sheet:xlrd.sheet.Sheet = None
         self.__field_map:dict[int, FieldObject] = {}
+        self.has_enum = False
         # enum settings
         self.__enum_filepath = p.join(p.dirname(p.abspath(__file__)), '{}.json'.format(SHARED_ENUM_NAME))
         self.__enum_map: dict[str, dict[str, int]] = {}
@@ -845,6 +846,7 @@ class SheetSerializer(Codec):
                 nest_table.type_name = self.__get_table_name(nest_table.name, prefix=sheet.name)
                 field = nest_table
         elif field_type.startswith('enum.'):
+            self.has_enum = True
             enum_field = EnumFieldObject(re.sub(r'^enum\.', '', field_type))
             enum_field.fill(field)
             enum_field.type = FieldType.enum
@@ -914,7 +916,7 @@ class SheetSerializer(Codec):
             json.dump(self.__enum_map, fp, indent=4)
         encoder.init(sheet=self.__sheet)
         encoder.save_enums(enum_map=self.__enum_map)
-        encoder.save_syntax(table=self.__root)
+        encoder.save_syntax(table=self.__root, include_enum=self.has_enum)
         encoder.encode()
 
 if __name__ == '__main__':

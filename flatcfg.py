@@ -4,6 +4,7 @@ import os.path as p
 from typing import Dict
 import operator
 import flatbuffers
+from google.protobuf.internal.enum_type_wrapper import EnumTypeWrapper
 
 ROW_RULE_INDEX, \
 ROW_TYPE_INDEX, \
@@ -147,9 +148,14 @@ class TableFieldObject(FieldObject):
 class Codec(object):
     def __init__(self):
         self.time_zone = 8
+        self.debug:bool = True
 
     def set_timezone(self, time_zone:int):
         self.time_zone = time_zone
+
+    def log(self, indent=0, *kwargs):
+        if not self.debug: return
+        print(*kwargs) if indent <= 0 else print(' '*(indent*4-1), *kwargs)
 
     def opt(self, v:str)->str:
         return re.sub(r'\.0$', '', v) if self.is_int(v) else v
@@ -254,6 +260,8 @@ class BookEncoder(Codec):
         self.workspace:str = workspace
         self.debug = debug
         self.sheet:xlrd.sheet.Sheet = None
+        self.module_map = {}
+        self.cursor:int = -1
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -272,6 +280,26 @@ class BookEncoder(Codec):
 
     def save_syntax(self, table: TableFieldObject):
         pass
+
+    def compile_schemas(self) -> str:
+        pass
+
+    def load_modules(self):
+        python_out = self.compile_schemas()
+        module_list = []
+        for base_path, _, file_name_list in os.walk(python_out):
+            sys.path.append(base_path)
+            for file_name in file_name_list:
+                if not file_name.endswith('.py') or file_name.startswith('__'): continue
+                module_name = re.sub(r'\.py$', '', file_name)
+                exec('import {}'.format(module_name))
+                module_list.append(module_name)
+        module_map = {}
+        scope_envs = locals()
+        for module_name in module_list:
+            module_map[module_name] = scope_envs.get(module_name)
+        self.module_map = module_map
+        return module_map
 
 class ProtobufEncoder(BookEncoder):
     def __init__(self, workspace:str, debug:bool):
@@ -335,12 +363,85 @@ class ProtobufEncoder(BookEncoder):
             buffer.write('{}{} {} items = 1;\n'.format(indent, FieldRule.repeated.name, table.type_name))
             buffer.write('}\n')
 
+    def compile_schemas(self)->str:
+        python_out = p.abspath('{}/pp'.format(self.workspace))
+        enum_schema = '{}/{}.proto'.format(self.workspace, SHARED_ENUM_NAME)
+        data_schema = '{}/{}.proto'.format(self.workspace, self.sheet.name.lower())
+        import shutil
+        if p.exists(python_out): shutil.rmtree(python_out)
+        os.makedirs(python_out)
+        command = 'protoc --proto_path={} --python_out={} {} {}'.format(self.workspace, python_out, enum_schema, data_schema)
+        assert os.system(command) == 0
+        return python_out
+
+    def get_module(self, module_name:str)->object:
+        return self.module_map.get('{}_pb2'.format(module_name))
+
+    def create_message_object(self, name:str)->object:
+        module = self.get_module(self.sheet.name.lower())
+        return getattr(module, name)()
+
+    def parse_enum(self, case_name:str, type_name:str)->int:
+        module = self.get_module(SHARED_ENUM_NAME.lower())
+        enum_type:EnumTypeWrapper = getattr(module, type_name)
+        return enum_type.Value(case_name)
+
+    def __encode_array(self, container, field:ArrayFieldObject):
+        table_size = len(field.table.member_fields)
+        item_count = field.count
+        cell = self.sheet.cell(self.cursor, field.offset)
+        if self.is_cell_empty(cell):
+            count = self.parse_int(str(cell.value))
+            if 0 < count < field.count: item_count = count
+        for n in range(item_count):
+            column_offset = n * table_size
+            message = container.add() # type: object
+            self.__encode_table(field.table, column_offset, message)
+
+    def __encode_table(self, table:TableFieldObject, column_offset:int = 0, message:object = None):
+        if not message: message = self.create_message_object(table.type_name)
+        for field in table.member_fields:
+            fv = str(self.sheet.cell(self.cursor, field.offset + column_offset).value).strip()
+            nest_object = message.__getattribute__(field.name)
+            if isinstance(field, TableFieldObject):
+                self.__encode_table(field, message=nest_object)
+                continue
+            elif isinstance(field, ArrayFieldObject):
+                self.__encode_array(container=nest_object, field=field)
+                continue
+            elif field.rule == FieldRule.repeated:
+                items = self.parse_array(fv)
+                if isinstance(field, EnumFieldObject):
+                    items = [self.parse_enum(x, field.enum) for x in items]
+                elif field.type != FieldType.string:
+                    items = [self.parse_scalar(x, field.type) for x in items]
+                container = nest_object # type: list
+                for x in items: container.append(x)
+                continue
+            elif isinstance(field, EnumFieldObject):
+                fv = self.parse_enum(fv, field.enum)
+            elif field.type != FieldType.string:
+                fv = self.parse_scalar(fv, field.type)
+            message.__setattr__(field.name, fv)
+        return message
+
     def encode(self):
-        pass
+        self.load_modules()
+        root_message = self.create_message_object(ROOT_CLASS_TEMPLATE.format(self.sheet.name))
+        items = root_message.__getattribute__('items')
+        for r in range(ROW_DATA_INDEX, self.sheet.nrows):
+            self.cursor = r
+            if self.is_cell_empty(self.sheet.cell(r, 0)): continue
+            self.__encode_table(self.table, message=items.add())
+        output_filepath = p.join(self.workspace, '{}.bin'.format(self.sheet.name.lower()))
+        with open(output_filepath, 'wb') as fp:
+            fp.write(root_message.SerializeToString())
+            print('[+] size:{:,} count:{} {!r}'.format(fp.tell(), len(items), output_filepath))
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
         self.enum_filepath = p.join(self.workspace, self.enum_filename)
         with open(self.enum_filepath, 'w+') as fp:
+            fp.write('syntax = "proto2";\n')
             if self.package_name:
                 fp.write('package {};\n\n'.format(self.package_name))
             fp.write(self.__generate_enums(enum_map))
@@ -351,11 +452,13 @@ class ProtobufEncoder(BookEncoder):
 
     def save_syntax(self, table:TableFieldObject):
         print('# {}'.format(self.sheet.name))
+        self.table = table
         self.syntax_filepath = p.join(self.workspace, '{}.proto'.format(table.type_name.lower()))
         with open(self.syntax_filepath, 'w+') as fp:
             buffer = io.StringIO()
             self.__generate_syntax(table, buffer)
             buffer.seek(0)
+            fp.write('syntax = "proto2";\n')
             fp.write('import "{}";\n\n'.format(self.enum_filename))
             if self.package_name:
                 fp.write('package {};\n\n'.format(self.package_name))
@@ -369,7 +472,6 @@ class FlatbufEncoder(BookEncoder):
         super(FlatbufEncoder, self).__init__(workspace, debug)
         self.enum_filename = '{}.fbs'.format(SHARED_ENUM_NAME)
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
-        self.module_map = {}
         self.cursor = -1
         self.string_offsets:dict[str, int] = {}
 
@@ -544,40 +646,28 @@ class FlatbufEncoder(BookEncoder):
             self.add_field(module_name, field.name, fv)
         return self.end_object(table.type_name)
 
-    def __load_modules(self):
-        python_out = p.abspath('{}/p'.format(self.workspace))
+    def compile_schemas(self)->str:
+        python_out = p.abspath('{}/fp'.format(self.workspace))
         enum_schema = '{}/{}.fbs'.format(self.workspace, SHARED_ENUM_NAME)
         data_schema = '{}/{}.fbs'.format(self.workspace, self.sheet.name.lower())
         import shutil
         if p.exists(python_out): shutil.rmtree(python_out)
         command = 'flatc -p -o {} {} {}'.format(python_out, enum_schema, data_schema)
         assert os.system(command) == 0
-        module_list = []
-        for base_path, _, file_name_list in os.walk(python_out):
-            sys.path.append(base_path)
-            for file_name in file_name_list:
-                if not file_name.endswith('.py') or file_name.startswith('__'): continue
-                module_name = re.sub(r'\.py$', '', file_name)
-                exec('import {}'.format(module_name))
-                module_list.append(module_name)
-        module_map = {}
-        scope_envs = locals()
-        for module_name in module_list:
-            module_map[module_name] = scope_envs.get(module_name)
-        return module_map
+        return python_out
 
     def ptr(self, v:int)->str:
         return '&{:08X}:{}'.format(v, v)
 
     def start_object(self, module_name:str):
         name = '{}Start'.format(module_name)
-        print('- {}'.format(name))
+        self.log(0, '- {}'.format(name))
         module = self.module_map.get(module_name) # type: dict
         getattr(module, name)(self.builder)
 
     def start_vector(self, module_name:str, field_name:str, item_count:int):
         name = '{}Start{}Vector'.format(module_name, self.make_camel(field_name))
-        print('- {} #{}'.format(name, item_count))
+        self.log(0, '- {} #{}'.format(name, item_count))
         module = self.module_map.get(module_name)  # type: dict
         getattr(module, name)(self.builder, item_count)
 
@@ -585,29 +675,29 @@ class FlatbufEncoder(BookEncoder):
         name = '{}End'.format(module_name)
         module = self.module_map.get(module_name) # type: dict
         offset = getattr(module, name)(self.builder)
-        print('- {} {}\n'.format(name, self.ptr(offset)))
+        self.log(0, '- {} {}\n'.format(name, self.ptr(offset)))
         return offset
 
     def end_vector(self, item_count:int)->int:
         offset = self.builder.EndVector(item_count)
-        print('- EndVector {}\n'.format(self.ptr(offset)))
+        self.log(0, '- EndVector {}\n'.format(self.ptr(offset)))
         return offset
 
     def add_field(self, module_name:str, field_name:str, v:any):
         name = '{}Add{}'.format(module_name, self.make_camel(field_name))
-        print('- {} = {!r}'.format(name, v))
+        self.log(0, '- {} = {!r}'.format(name, v))
         module = self.module_map.get(module_name)  # type: dict
         getattr(module, name)(self.builder, v)
 
     def encode(self):
-        self.module_map = self.__load_modules()
+        self.load_modules()
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         item_offsets:list[int] = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
             if self.is_cell_empty(self.sheet.cell(r, 0)): continue
             self.cursor = r
             offset = self.__encode_table(self.table)
-            print('{} {}'.format(self.table.type_name, self.ptr(offset)))
+            self.log(0, '{} {}'.format(self.table.type_name, self.ptr(offset)))
             item_offsets.append(offset)
         xsheet_name = self.sheet.name  # type: str
         module_name = ROOT_CLASS_TEMPLATE.format(xsheet_name)
@@ -630,7 +720,7 @@ class FlatbufEncoder(BookEncoder):
             buffer = bytearray(fp.read())
             item_array_class = getattr(self.module_map.get(module_name), module_name) # type: object
             item_array = getattr(item_array_class, 'GetRootAs{}'.format(module_name))(buffer, 0) # type: object
-            print('[+] size={:,} count={} expect_count={}\n'.format(fp.tell(), getattr(item_array, 'ItemsLength')(), len(item_offsets)))
+            print('[+] size={:,} count={} {!r}\n'.format(fp.tell(), getattr(item_array, 'ItemsLength')(), output_filepath))
 
 
     def save_enums(self, enum_map:Dict[str,Dict[str,int]]):
@@ -665,7 +755,7 @@ class SheetSerializer(Codec):
         super(SheetSerializer, self).__init__()
         self.__type_map:dict[str, any] = vars(FieldType)
         self.__rule_map:dict[str, any] = vars(FieldRule)
-        self.__debug:bool = debug
+        self.debug = debug
         self.__root:TableFieldObject = None
         self.__sheet:xlrd.sheet.Sheet = None
         self.__field_map:dict[int, FieldObject] = {}
@@ -681,10 +771,6 @@ class SheetSerializer(Codec):
         if v in ('s', 'svr', 'server'): return FieldAccess.server
         if v in ('c', 'cli', 'client'): return FieldAccess.client
         return FieldAccess.default
-
-    def log(self, indent=0, *kwargs):
-        if not self.__debug: return
-        print(*kwargs) if indent <= 0 else print(' '*(indent*4-1), *kwargs)
 
     def __get_table_name(self, field_name:str, prefix:str = None)->str:
         table_name = self.make_camel(field_name)
@@ -857,6 +943,7 @@ if __name__ == '__main__':
             except Exception as error:
                 if options.error: raise error
                 else: continue
+            exit()
         book.release_resources()
 
 

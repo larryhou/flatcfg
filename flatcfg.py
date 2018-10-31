@@ -946,7 +946,6 @@ if __name__ == '__main__':
             except Exception as error:
                 if options.error: raise error
                 else: continue
-            exit()
         book.release_resources()
 
 

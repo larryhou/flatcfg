@@ -924,12 +924,13 @@ class SheetSerializer(Codec):
 if __name__ == '__main__':
     import sys, argparse
     arguments = argparse.ArgumentParser()
-    arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg/temp')
-    arguments.add_argument('--book-file', '-f', nargs='+', required=True)
-    arguments.add_argument('--use-protobuf', '-u', action='store_true')
-    arguments.add_argument('--debug', '-d', action='store_true')
-    arguments.add_argument('--error', '-e', action='store_true')
-    arguments.add_argument('--auto-default-case', action='store_true')
+    arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg/temp', help='workspace path for outputs and temp files')
+    arguments.add_argument('--book-file', '-f', nargs='+', required=True, help='xls book file path')
+    arguments.add_argument('--use-protobuf', '-u', action='store_true', help='generate protobuf format binary output')
+    arguments.add_argument('--debug', '-d', action='store_true', help='use debug mode to get more detial information')
+    arguments.add_argument('--error', '-e', action='store_true', help='raise error to console')
+    arguments.add_argument('--auto-default-case', '-c', action='store_true', help='auto generate a NONE default case for each enum')
+    arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -943,7 +944,7 @@ if __name__ == '__main__':
                     encoder = ProtobufEncoder(workspace=options.workspace, debug=options.debug)
                 else:
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
-                encoder.set_package_name('dataconfig')
+                encoder.set_package_name(options.namespace)
                 serializer.pack(encoder, auto_default_case=options.auto_default_case)
             except Exception as error:
                 if options.error: raise error

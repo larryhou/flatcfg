@@ -198,7 +198,7 @@ class Codec(object):
     def parse_duration(self, v:str)->int:
         components = [self.parse_int(x) for x in re.split(r'\s*[:\uff1a]\s*', v)] # type: list[int]
         assert len(components) <= 4
-        factor = (0, 60, 60*60, 24*60*60)
+        factor = (0, 60, 3600, 86400)
         count = len(components)
         total = 0
         for n in range(count):

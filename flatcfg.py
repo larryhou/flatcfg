@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import enum, xlrd, re, io, json, os, hashlib
+import enum, xlrd, re, io, json, os, hashlib, time, datetime
 import os.path as p
 from typing import Dict
 import operator
@@ -146,7 +146,10 @@ class TableFieldObject(FieldObject):
 
 class Codec(object):
     def __init__(self):
-        pass
+        self.time_zone = 8
+
+    def set_timezone(self, time_zone:int):
+        self.time_zone = time_zone
 
     def opt(self, v:str)->str:
         return re.sub(r'\.0$', '', v) if self.is_int(v) else v
@@ -165,6 +168,9 @@ class Codec(object):
     def is_int(self, v:str)->bool:
         return re.match(r'^[+-]?\d+\.0$', v)
 
+    def is_cell_empty(self, cell:xlrd.sheet.Cell)->bool:
+        return cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK) or not str(cell.value).strip()
+
     def parse_int(self, v:str):
         return int(re.sub(r'\.\d+$', '', v)) if v else 0
 
@@ -181,10 +187,21 @@ class Codec(object):
         return [self.opt(x) for x in re.split(r'\s*[;\uff1b]\s*', v)] # split with ;|；
 
     def parse_date(self, v:str)->int:
-        return 0
+        date_format = '%Y-%m-%d %H:%M:%S'
+        offset = datetime.timedelta(seconds=-self.time_zone * 3600)
+        assert re.match(r'^%s$'%date_format, v), '{!r} doesn\'t match with {!r}'.format(v, date_format)
+        date = datetime.datetime.strptime(v, date_format) + offset
+        return (date - datetime.datetime(1970, 1, 1)).total_seconds()
 
     def parse_duration(self, v:str)->int:
-        return 0
+        components = [self.parse_int(x) for x in re.split(r'\s*[:\uff1a]\s*', v)] # type: list[int]
+        assert len(components) <= 4
+        factor = (0, 60, 60*60, 24*60*60)
+        count = len(components)
+        total = 0
+        for n in range(count):
+            total += components[:-(n+1)]*factor[n]
+        return total
 
     def parse_value(self, v:str, t:FieldType)->(any, str):
         if t in (FieldType.array, FieldType.table): return v, ''
@@ -422,7 +439,7 @@ class FlatbufEncoder(BookEncoder):
 
         item_count = field.count
         cell = self.sheet.cell(self.cursor, field.offset)
-        if cell.ctype != xlrd.XL_CELL_EMPTY:
+        if self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
             if 0 < count < field.count: item_count = count
         for n in range(item_count):
@@ -585,6 +602,7 @@ class FlatbufEncoder(BookEncoder):
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         item_offsets:list[int] = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
+            if self.is_cell_empty(self.sheet.cell(r, 0)): continue
             self.cursor = r
             offset = self.__encode_table(self.table)
             print('{} {}'.format(self.table.type_name, self.ptr(offset)))

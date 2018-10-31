@@ -75,18 +75,19 @@ class EnumFieldObject(FieldObject):
         self.enum:str = name
         self.case_map:dict[str, int] = {}
 
-    def import_cases(self, case_list): # type: (list[str])->None
+    def import_cases(self, case_list, auto_default_case = True): # type: (list[str], bool)->None
         offset = 0
         if self.case_map:
             for index in self.case_map.values():
                 if index > offset: offset = index
-        else:
+            offset += 1
+        elif auto_default_case:
             abbr = re.findall(r'[A-Z]', self.enum)[:2]
             default = self.default
             if not default: default = '{}_NONE'.format(''.join(abbr))
             self.default = default
             self.case_map[default] = offset
-        offset += 1
+            offset += 1
         for case_name in case_list:
             if case_name not in self.case_map:
                 self.case_map[case_name] = offset
@@ -908,11 +909,11 @@ class SheetSerializer(Codec):
                 if field_value not in unique_values: unique_values.append(field_value)
         return unique_values
 
-    def pack(self, encoder:BookEncoder):
+    def pack(self, encoder:BookEncoder, auto_default_case:bool):
         for field in self.__field_map.values():
             if not isinstance(field, EnumFieldObject): continue
             field.hook_default()
-            field.import_cases(self.__get_unique_values(field.offset))
+            field.import_cases(self.__get_unique_values(field.offset), auto_default_case)
         with open(self.__enum_filepath, 'w+') as fp:
             json.dump(self.__enum_map, fp, indent=4)
         encoder.init(sheet=self.__sheet)
@@ -928,6 +929,7 @@ if __name__ == '__main__':
     arguments.add_argument('--use-protobuf', '-u', action='store_true')
     arguments.add_argument('--debug', '-d', action='store_true')
     arguments.add_argument('--error', '-e', action='store_true')
+    arguments.add_argument('--auto-default-case', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -942,7 +944,7 @@ if __name__ == '__main__':
                 else:
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
                 encoder.set_package_name('dataconfig')
-                serializer.pack(encoder)
+                serializer.pack(encoder, auto_default_case=options.auto_default_case)
             except Exception as error:
                 if options.error: raise error
                 else: continue

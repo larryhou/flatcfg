@@ -203,7 +203,7 @@ class Codec(object):
         total = 0
         for n in range(count):
             total += components[:-(n+1)]*factor[n]
-        return total
+        return min(total, (1<<32)-1)
 
     def parse_value(self, v:str, t:FieldType)->(any, str):
         if t in (FieldType.array, FieldType.table): return v, ''

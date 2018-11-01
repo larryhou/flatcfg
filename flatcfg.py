@@ -173,7 +173,7 @@ class Codec(object):
         return label
 
     def is_int(self, v:str)->bool:
-        return re.match(r'^[+-]?\d+\.0$', v)
+        return re.match(r'^[+-]?\d+(\.0)?$', v)
 
     def is_cell_empty(self, cell:xlrd.sheet.Cell)->bool:
         return cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK) or not str(cell.value).strip()
@@ -704,7 +704,7 @@ class FlatbufEncoder(BookEncoder):
         getattr(module, name)(self.builder, v)
 
     def parse_sort_field(self, r:int, c:int):
-        v = str(self.sheet.cell(r, c)).strip()
+        v = str(self.sheet.cell(r, c).value).strip()
         return self.parse_int(v) if self.is_int(v) else v
 
     def encode(self):

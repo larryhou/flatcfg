@@ -212,12 +212,12 @@ class Codec(object):
             total += components[:-(n+1)]*factor[n]
         return min(total, (1<<32)-1)
 
-    def parse_value(self, v:str, t:FieldType)->(any, str):
-        if t in (FieldType.array, FieldType.table): return v, ''
-        elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return self.parse_int(v), '0'
-        elif t == FieldType.double or re.match(r'^float\d*$', t.name): return self.parse_float(v), '0'
-        elif t == FieldType.bool: return self.parse_bool(v), 'false'
-        else: return v, ''
+    def get_default(self, t:FieldType)->str:
+        if t in (FieldType.array, FieldType.table): return ''
+        elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return '0'
+        elif t == FieldType.double or re.match(r'^float\d*$', t.name): return '0'
+        elif t == FieldType.bool: return 'false'
+        else: return ''
 
     def parse_scalar(self, v:str, ftype:FieldType):
         if ftype in type_presets.ints or ftype in type_presets.uints:
@@ -887,7 +887,7 @@ class SheetSerializer(Codec):
             field.type = FieldType.date
         assert field.name and field.type, field
         if not field.default:
-            _, field.default = self.parse_value('', field.type)
+            field.default = self.get_default(field.type)
         if field.rule == FieldRule.repeated: field.default = ''
         self.log(depth, '{:2d} {:2s} {}'.format(c, self.abc(c), field))
         self.__field_map[field.offset] = field

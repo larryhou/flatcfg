@@ -711,8 +711,8 @@ class FlatbufEncoder(BookEncoder):
         self.load_modules()
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         item_offsets:list[int] = []
-        column_indice = self.get_column_indice(self.sheet, 'id')
-        sort_index = column_indice[0] if column_indice else 0
+        sort_column_indice = self.get_column_indice(self.sheet, 'id')
+        sort_index = sort_column_indice[0] if sort_column_indice else 0
         sort_items = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
             if self.is_cell_empty(self.sheet.cell(r, 0)): continue
@@ -722,12 +722,13 @@ class FlatbufEncoder(BookEncoder):
             self.log(0, '{} {}'.format(self.table.type_name, self.ptr(offset)))
             item_offsets.append(offset)
         # sort items by `id` key or first field
-        sort_items.sort(key=lambda x:x[0])
-        self.log(0, '{-}', item_offsets)
-        item_offsets = [x[1] for x in sort_items]
-        self.log(0, '{+}', item_offsets)
-        xsheet_name = self.sheet.name  # type: str
+        if sort_column_indice:
+            sort_items.sort(key=lambda x:x[0])
+            self.log(0, '{-}', item_offsets)
+            item_offsets = [x[1] for x in sort_items]
+            self.log(0, '{+}', item_offsets)
         # encode config items into root_type
+        xsheet_name = self.sheet.name  # type: str
         module_name = ROOT_CLASS_TEMPLATE.format(xsheet_name)
         self.start_vector(module_name, 'items', len(item_offsets))
         item_count = len(item_offsets)

@@ -397,7 +397,7 @@ class ProtobufEncoder(BookEncoder):
 
     def __encode_array(self, container, field:ArrayFieldObject):
         table_size = len(field.table.member_fields)
-        item_count = field.count
+        item_count = 0 # field.count
         cell = self.sheet.cell(self.cursor, field.offset)
         if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
@@ -554,7 +554,7 @@ class FlatbufEncoder(BookEncoder):
         table_size = len(field.table.member_fields)
         item_offsets:list[int] = []
 
-        item_count = field.count
+        item_count = 0 # field.count
         cell = self.sheet.cell(self.cursor, field.offset)
         if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))

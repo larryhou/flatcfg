@@ -712,7 +712,6 @@ class FlatbufEncoder(BookEncoder):
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         item_offsets:list[int] = []
         sort_column_indice = self.get_column_indice(self.sheet, 'id')
-        print(sort_column_indice)
         sort_index = sort_column_indice[0] if sort_column_indice else 0
         sort_items = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):

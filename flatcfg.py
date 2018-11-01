@@ -399,7 +399,7 @@ class ProtobufEncoder(BookEncoder):
         table_size = len(field.table.member_fields)
         item_count = field.count
         cell = self.sheet.cell(self.cursor, field.offset)
-        if self.is_cell_empty(cell):
+        if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
             if 0 < count < field.count: item_count = count
         for n in range(item_count):
@@ -556,7 +556,7 @@ class FlatbufEncoder(BookEncoder):
 
         item_count = field.count
         cell = self.sheet.cell(self.cursor, field.offset)
-        if self.is_cell_empty(cell):
+        if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
             if 0 < count < field.count: item_count = count
         for n in range(item_count):
@@ -569,7 +569,8 @@ class FlatbufEncoder(BookEncoder):
         assert field.rule == FieldRule.repeated
         item_count = len(items)
         self.start_vector(module_name, field.name, item_count)
-        for v in items:
+        for n in range(len(items)):
+            v = items[-(n+1)]
             self.__encode_scalar(v, field)
         return self.end_vector(item_count)
 
@@ -729,7 +730,7 @@ class FlatbufEncoder(BookEncoder):
         self.start_vector(module_name, 'items', len(item_offsets))
         item_count = len(item_offsets)
         for n in range(item_count):
-            offset = item_offsets[item_count - n - 1]
+            offset = item_offsets[-(n+1)]
             self.builder.PrependUOffsetTRelative(offset)
         item_vector = self.end_vector(len(item_offsets))
         self.start_object(module_name)

@@ -795,6 +795,7 @@ class SheetSerializer(Codec):
         if p.exists(self.__enum_filepath):
             with open(self.__enum_filepath) as fp:
                 self.__enum_map: dict[str, dict[str, int]] = json.load(fp)
+        self.compatible_mode = False
 
     def __parse_access(self, v:str)->FieldAccess:
         v = v.lower()
@@ -815,6 +816,8 @@ class SheetSerializer(Codec):
         c = column + 1
         assert table.member_count > 0
         table.offset = c
+        if self.compatible_mode:
+            table.type_name = 'InternalType_{}'.format(table.name)
         c = self.__parse_table(table, sheet, c, depth=depth + 1)
         array.table = table
         count = 1
@@ -958,6 +961,8 @@ if __name__ == '__main__':
     arguments.add_argument('--error', '-e', action='store_true', help='raise error to console')
     arguments.add_argument('--auto-default-case', '-c', action='store_true', help='auto generate a NONE default case for each enum')
     arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
+    arguments.add_argument('--time-zone', '-z', default=8, type=int, help='time zone for parsing date time')
+    arguments.add_argument('--compatible-mode', '-a', action='store_true', help='for private use')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -965,6 +970,7 @@ if __name__ == '__main__':
         for sheet_name in book.sheet_names(): # type: str
             if not sheet_name.isupper(): continue
             serializer = SheetSerializer(debug=options.debug)
+            serializer.compatible_mode = options.compatible_mode
             try:
                 serializer.parse_syntax(book.sheet_by_name(sheet_name))
                 if options.use_protobuf:
@@ -972,6 +978,7 @@ if __name__ == '__main__':
                 else:
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
                 encoder.set_package_name(options.namespace)
+                encoder.set_timezone(options.time_zone)
                 serializer.pack(encoder, auto_default_case=options.auto_default_case)
             except Exception as error:
                 if options.error: raise error

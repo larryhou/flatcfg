@@ -818,6 +818,7 @@ class SheetSerializer(Codec):
         table.offset = c
         if self.compatible_mode:
             table.type_name = 'InternalType_{}'.format(table.name)
+            array.name = table.name
         c = self.__parse_table(table, sheet, c, depth=depth + 1)
         array.table = table
         count = 1

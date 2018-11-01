@@ -862,7 +862,8 @@ class SerializeScriptGenerator(Codec):
         import tempfile, shutil
         for base_path, _, file_name_list in os.walk(self.output_path):
             for file_name in file_name_list:
-                if not file_name.endswith('.cs') or not file_name.startswith(self.table.type_name): continue
+                module_name = self.table.type_name.lower()
+                if not file_name.endswith('.cs') or not file_name.startswith(module_name): continue
                 file_path = p.join(base_path, file_name)
                 self.log(0, file_path)
                 temp_filepath = tempfile.mktemp('_{}'.format(file_name))
@@ -882,7 +883,7 @@ class SerializeScriptGenerator(Codec):
     def generate(self, workspace:str, target_name:str = script_target_names.csharp):
         self.output_path = p.join(p.abspath(workspace), target_name)
         self.target_name = target_name
-        command = 'flatc --{} -o {} {}/{}.fbs'.format(target_name, self.output_path, workspace, self.table.type_name.lower())
+        command = 'flatc --gen-onefile --{} -o {} {}/{}.fbs'.format(target_name, self.output_path, workspace, self.table.type_name.lower())
         assert os.system(command) == 0
         if target_name == script_target_names.csharp:
             self.restore_csharp_field_names()
@@ -1075,7 +1076,7 @@ if __name__ == '__main__':
     arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
     arguments.add_argument('--time-zone', '-z', default=8, type=int, help='time zone for parsing date time')
     arguments.add_argument('--compatible-mode', '-a', action='store_true', help='for private use')
-    arguments.add_argument('--script-target', '-t', default='csharp', help='script target')
+    arguments.add_argument('--csharp', '-s', action='store_true', help='script target')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -1093,8 +1094,9 @@ if __name__ == '__main__':
                 encoder.set_package_name(options.namespace)
                 encoder.set_timezone(options.time_zone)
                 serializer.pack(encoder, auto_default_case=options.auto_default_case)
-                generator = SerializeScriptGenerator(serializer.root_table, debug=options.debug)
-                generator.generate(workspace=options.workspace, target_name=options.script_target)
+                if options.csharp:
+                    generator = SerializeScriptGenerator(serializer.root_table, debug=options.debug)
+                    generator.generate(workspace=options.workspace, target_name=script_target_names.csharp)
             except Exception as error:
                 if options.error: raise error
                 else: continue

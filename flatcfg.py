@@ -721,11 +721,13 @@ class FlatbufEncoder(BookEncoder):
             sort_items.append([self.parse_sort_field(r, sort_index), offset])
             self.log(0, '{} {}'.format(self.table.type_name, self.ptr(offset)))
             item_offsets.append(offset)
+        # sort items by `id` key or first field
         sort_items.sort(key=lambda x:x[0])
         self.log(0, '{-}', item_offsets)
         item_offsets = [x[1] for x in sort_items]
         self.log(0, '{+}', item_offsets)
         xsheet_name = self.sheet.name  # type: str
+        # encode config items into root_type
         module_name = ROOT_CLASS_TEMPLATE.format(xsheet_name)
         self.start_vector(module_name, 'items', len(item_offsets))
         item_count = len(item_offsets)
@@ -737,10 +739,10 @@ class FlatbufEncoder(BookEncoder):
         self.add_field(module_name, 'items', item_vector)
         root_table = self.end_object(module_name)
         self.builder.Finish(root_table)
+        # write flatbuffer into disk
         output_filepath = p.join(self.workspace, '{}.fpb'.format(xsheet_name.lower()))
         with open(output_filepath, 'wb') as fp:
             fp.write(self.builder.Output())
-
         # verify
         with open(output_filepath, 'rb') as fp:
             buffer = bytearray(fp.read())

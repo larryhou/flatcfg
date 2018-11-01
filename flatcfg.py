@@ -247,6 +247,13 @@ class Codec(object):
                 name += char
         return name
 
+    def get_column_indice(self, sheet:xlrd.sheet.Sheet, name:str, row_index:int= ROW_NAME_INDEX):
+        column_indice:list[str] = []
+        for n in range(sheet.ncols):
+            cell_value = str(sheet.cell(row_index, n)).strip()
+            if cell_value == name: column_indice.append(n)
+        return column_indice
+
 class BookEncoder(Codec):
     def __init__(self, workspace:str, debug:bool):
         super(BookEncoder, self).__init__()
@@ -436,6 +443,9 @@ class ProtobufEncoder(BookEncoder):
             if self.is_cell_empty(self.sheet.cell(r, 0)): continue
             self.__encode_table(self.table, message=items.add())
         output_filepath = p.join(self.workspace, '{}.ppb'.format(self.sheet.name.lower()))
+        from operator import attrgetter
+        if len(items) and hasattr(items[0], 'id'):
+            items.sort(key=attrgetter('id'))
         with open(output_filepath, 'wb') as fp:
             fp.write(root_message.SerializeToString())
             print('[+] size:{:,} count:{} {!r}\n'.format(fp.tell(), len(items), output_filepath))
@@ -692,16 +702,28 @@ class FlatbufEncoder(BookEncoder):
         module = self.module_map.get(module_name)  # type: dict
         getattr(module, name)(self.builder, v)
 
+    def parse_sort_field(self, r:int, c:int):
+        v = str(self.sheet.cell(r, c)).strip()
+        return self.parse_int(v) if self.is_int(v) else v
+
     def encode(self):
         self.load_modules()
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         item_offsets:list[int] = []
+        column_indice = self.get_column_indice(self.sheet, 'id')
+        sort_index = column_indice[0] if column_indice else 0
+        sort_items = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):
             if self.is_cell_empty(self.sheet.cell(r, 0)): continue
             self.cursor = r
             offset = self.__encode_table(self.table)
+            sort_items.append([self.parse_sort_field(r, sort_index), offset])
             self.log(0, '{} {}'.format(self.table.type_name, self.ptr(offset)))
             item_offsets.append(offset)
+        sort_items.sort(key=lambda x:x[0])
+        self.log(0, '{-}', item_offsets)
+        item_offsets = [x[1] for x in sort_items]
+        self.log(0, '{+}', item_offsets)
         xsheet_name = self.sheet.name  # type: str
         module_name = ROOT_CLASS_TEMPLATE.format(xsheet_name)
         self.start_vector(module_name, 'items', len(item_offsets))

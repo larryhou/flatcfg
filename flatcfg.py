@@ -250,7 +250,7 @@ class Codec(object):
     def get_column_indice(self, sheet:xlrd.sheet.Sheet, name:str, row_index:int= ROW_NAME_INDEX):
         column_indice:list[str] = []
         for n in range(sheet.ncols):
-            cell_value = str(sheet.cell(row_index, n)).strip()
+            cell_value = str(sheet.cell(row_index, n).value).strip()
             if cell_value == name: column_indice.append(n)
         return column_indice
 
@@ -712,6 +712,7 @@ class FlatbufEncoder(BookEncoder):
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         item_offsets:list[int] = []
         sort_column_indice = self.get_column_indice(self.sheet, 'id')
+        print(sort_column_indice)
         sort_index = sort_column_indice[0] if sort_column_indice else 0
         sort_items = []
         for r in range(ROW_DATA_INDEX, self.sheet.nrows):

@@ -988,7 +988,7 @@ class SheetSerializer(Codec):
                 nest_table = TableFieldObject(num)
                 nest_table.fill(field)
                 nest_table.type = FieldType.table
-                nest_table.type_name = self.__get_table_name(nest_table.name, prefix=sheet.name)
+                nest_table.type_name = self.__get_table_name(field.default if field.default else nest_table.name, prefix=self.__sheet.name)
                 field = nest_table
         elif field_type.startswith('enum.'):
             self.has_enum = True

@@ -1,6 +1,6 @@
-`flatcfg` is a python tool for serializing Excel book row data into `FlatBuffers` or `protobuf` binary formats.
+`flatcfg` is a python tool for serializing Excel book row data into `FlatBuffers` or `Protobuf` binary formats.
 
-`flatcfg` support full types in `FlatBuffers` and some limited `protobuf` types (`double`, `float`, `string`, `bool`, `[u]int32`, `[u]int64`).
+`flatcfg` support full types in `FlatBuffers` and some limited `Protobuf` types (`double`, `float`, `string`, `bool`, `[u]int32`, `[u]int64`).
 
 > FlatBuffers types
 
@@ -28,7 +28,7 @@ First we need know how define a `Table` in Excel book. Suppose we have a sheet n
 
 As you can see, we need first **5** rows to define a table structure, and there are **FIELD_RULE**, **FIELD_TYPE**, **FIELD_NAME**, **FIELD_ACES**, **FIELD_DESC**.
 
-**FIELD_RULE**: field rule type (optional, required, repeated), same meanings with those in `protobuf`</br>
+**FIELD_RULE**: field rule type (optional, required, repeated), same meanings with those in `Protobuf`</br>
 **FIELD_TYPE**: field type as above</br>
 **FIELD_NAME**: field name used for generating table structure, if equal mark `=` comes after it, the second part will the default value for this field. And if the field is a `Table` or `Array` then the second part will be the nest type name.</br>
 **FIELD_ACES**: this is used for special purpose, e.g. generating different sirialized data from same table</br>
@@ -58,9 +58,9 @@ table INFORMATION_CONFIG_ARRAY
 root_type INFORMATION_CONFIG_ARRAY;
 ```
 
-Run `python3 flatcfg.py -f ~/Downloads/foo.Excelx`, you'll get `protobuf` message file.
+Run `python3 flatcfg.py -f ~/Downloads/foo.Excelx`, you'll get `Protobuf` message file.
 
-```protobuf
+```Protobuf
 syntax = "proto2";
 package dataconfig;
 
@@ -77,7 +77,7 @@ message INFORMATION_CONFIG_ARRAY
 }
 
 ```
-When `schema`/`message` files are generated, `flatcfg` will use there files to serialize Excel book data into binary formats, which you could deserialize into runtime objects with libraries from `FlatBuffers`/`protobuf`.
+When `schema`/`message` files are generated, `flatcfg` will use there files to serialize Excel book data into binary formats, which you could deserialize into runtime objects with libraries from `FlatBuffers`/`Protobuf`.
 
 # Nest
 
@@ -117,7 +117,7 @@ table FOO_CONF_ARRAY
 root_type FOO_CONF_ARRAY;
 ```
 
-```protobuf
+```Protobuf
 syntax = "proto2";
 package dataconfig;
 
@@ -204,7 +204,7 @@ table ITEM_CONF_ARRAY
 root_type ITEM_CONF_ARRAY;
 ```
 
-```protobuf
+```Protobuf
 syntax = "proto2";
 package dataconfig;
 
@@ -330,7 +330,7 @@ root_type MALL_CONF_ARRAY;
 
 ```
 
-```protobuf
+```Protobuf
 syntax = "proto2";
 import "shared_enum.proto";
 
@@ -397,7 +397,7 @@ message MALL_CONF_ARRAY
 More often, we just wanna generate simple array which contains scalar values, e.g. uint, bool. In this situation, we just declare a array same as `maps` field, in which the type cell value is scalar type, and the rule cell value is **repeated**, `flatcfg` will split each value by `;`, and generate array with related type declared in the type cell.
 
 # Enum
-Both `FlatBuffers` and `protobuf` support `enum` type, `flatcfg` also support `enum` declaration, e.g.
+Both `FlatBuffers` and `Protobuf` support `enum` type, `flatcfg` also support `enum` declaration, e.g.
 
 ### MAIL_CONF
 | | | | | | | | | | | | | | | | | | |
@@ -463,7 +463,7 @@ table MAIL_CONF_ARRAY
 root_type MAIL_CONF_ARRAY;
 ```
 `MAIL_CONF` messages
-```protobuf
+```Protobuf
 syntax = "proto2";
 import "shared_enum.proto";
 

@@ -34,6 +34,8 @@ As you can see, we need first **5** rows to define a table structure, and there 
 **FIELD_ACES**: this is used for special purpose, e.g. generating different sirialized data from same table</br>
 **FIELD_DESC**: for field description/comments
 
+> The first uppercase column is just for helping you understand table definition, please remove the first column in practice.
+
 Run the following command line
 ```sh
 python3 flatcfg.py -f ~/Downloads/foo.Excelx

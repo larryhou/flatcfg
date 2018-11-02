@@ -38,7 +38,7 @@ As you can see, we need first **5** rows to define a table structure, and there 
 
 Run the following command line
 ```sh
-python3 flatcfg.py -f ~/Downloads/foo.Excelx
+python3 flatcfg.py -f ~/Downloads/foo.xlsx
 ```
 You will get `FlatBuffers` schema file
 
@@ -60,7 +60,7 @@ table INFORMATION_CONFIG_ARRAY
 root_type INFORMATION_CONFIG_ARRAY;
 ```
 
-Run `python3 flatcfg.py -f ~/Downloads/foo.Excelx`, you'll get `Protobuf` message file.
+Run `python3 flatcfg.py -f ~/Downloads/foo.xlsx`, you'll get `Protobuf` message file.
 
 ```Protobuf
 syntax = "proto2";

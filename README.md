@@ -82,6 +82,7 @@ When `schema`/`message` files are generated, `flatcfg` will use there files to s
 # Nest
 
 > FOO_CONF
+
 | | | | | | | | |
 |:--|:--|:--|:--|:--|:--|:--|:--|
 | FIELD_RULE | required | required | required | required | required | required | required |
@@ -149,6 +150,7 @@ What happens if the rule cell value is **repeated**? This will be a situaion tha
 # Array
 
 > ITEM_CONF
+
 | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | |
 |:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|
 | FIELD_RULE | required | optional | * | optional | repeated | * | optional | * | optional | optional | optional | optional | optional | repeated | optional | optional | optional | repeated | optional | repeated | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional |
@@ -256,6 +258,7 @@ In this exmaple, we generate nest type `ItemConfStatInfo`, which is repeated in 
 Until now, we get table, nest table, array, and if you like, you can composite more complicated data structure by nesting array and table in any way you can imaging, e.g.
 
 > MALL_CONF
+
 | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | |
 |:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|
 | FIELD_RULE | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | repeated | optional | optional | optional | optional | optional | optional | optional | optional | optional | repeated | required | optional | optional | optional | optional | repeated | required | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | repeated | required | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | repeated | optional |
@@ -400,6 +403,7 @@ More often, we just wanna generate simple array which contains scalar values, e.
 Both `FlatBuffers` and `Protobuf` support `enum` type, `flatcfg` also support `enum` declaration, e.g.
 
 > MAIL_CONF
+
 | | | | | | | | | | | | | | | | | | |
 |:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|:--|
 | FIELD_RULE | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional | optional |

@@ -342,7 +342,10 @@ class ProtobufEncoder(BookEncoder):
         buffer.seek(0)
         return buffer.read()
 
-    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO):
+    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO, visit_map = None):
+        if not visit_map: visit_map:dict[str, bool] = {}
+        if visit_map.get(table.type_name): return
+        visit_map[table.type_name] = True
         nest_table_list:list[TableFieldObject] = []
         indent = self.get_indent(1)
         buffer.write('message {}\n'.format(table.type_name))
@@ -378,7 +381,7 @@ class ProtobufEncoder(BookEncoder):
             buffer.write('\n')
         buffer.write('}\n\n')
         for nest_table in nest_table_list:
-            self.__generate_syntax(nest_table, buffer)
+            self.__generate_syntax(nest_table, buffer, visit_map)
         if table.member_count == 0:
             root_message_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
             buffer.write('message {}\n{{\n'.format(root_message_name))
@@ -521,7 +524,10 @@ class FlatbufEncoder(BookEncoder):
         buffer.seek(0)
         return buffer.read()
 
-    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO):
+    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO, visit_map = None):
+        if not visit_map: visit_map:dict[str, bool] = {}
+        if visit_map.get(table.type_name): return
+        visit_map[table.type_name] = True
         nest_table_list:list[TableFieldObject] = []
         indent = self.get_indent(1)
         buffer.write('table {}\n'.format(table.type_name))
@@ -556,7 +562,7 @@ class FlatbufEncoder(BookEncoder):
             buffer.write('\n')
         buffer.write('}\n\n')
         for nest_table in nest_table_list:
-            self.__generate_syntax(nest_table, buffer)
+            self.__generate_syntax(nest_table, buffer, visit_map)
         if table.member_count == 0:
             array_type_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
             buffer.write('table {}\n{{\n'.format(array_type_name))

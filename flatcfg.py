@@ -149,9 +149,13 @@ class TableFieldObject(FieldObject):
 
     def equal(self, f:'TableFieldObject'):
         length = len(self.member_fields)
+        if f.type_name != self.type_name: return False
+        if len(f.member_fields) != len(self.member_fields): return False
         for n in range(length):
             if not f.member_fields[n].equal(self.member_fields[n]): return False
         return True
+
+    def field_names(self): return [x.name for x in self.member_fields]
 
     @property
     def member_count(self)->int: return self.__member_count
@@ -903,6 +907,7 @@ class SheetSerializer(Codec):
         self.__root:TableFieldObject = None
         self.__sheet:xlrd.sheet.Sheet = None
         self.__field_map:dict[int, FieldObject] = {}
+        self.__table_map:dict[str, TableFieldObject] = {}
         self.has_enum = False
         # enum settings
         self.__enum_filepath = p.join(p.dirname(p.abspath(__file__)), '{}.json'.format(SHARED_ENUM_NAME))
@@ -914,6 +919,9 @@ class SheetSerializer(Codec):
 
     @property
     def root_table(self)->TableFieldObject:return self.__root
+
+    def reset(self):
+        self.__init__(self.debug)
 
     def __parse_access(self, v:str)->FieldAccess:
         v = v.lower()
@@ -978,7 +986,7 @@ class SheetSerializer(Codec):
             field.default = field_name[sep+1:]
         else:
             field.name = field_name
-        field.rule = rule_map.get(field_rule)
+        field.rule = rule_map.get(field_rule.lower())
         field.access = self.__parse_access(field_aces)
         field.description = field_desc
         field.offset = c
@@ -1036,6 +1044,10 @@ class SheetSerializer(Codec):
                 position = c
                 table.size = position - column # exclude declaration field
                 self.log(depth, table)
+                if table.type_name in self.__table_map: # make sure that same types with same definitions
+                    assert self.__table_map.get(table.type_name).equal(table), 'expect:{!r} but:{!r} def:{{{}}} ref:{{{}}}'.format(self.__table_map.get(table.type_name).field_names(), table.field_names(), table, self.__table_map.get(table.type_name))
+                else:
+                    self.__table_map[table.type_name] = table
                 return position
         self.log(depth, table)
         table.size = c - column

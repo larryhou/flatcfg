@@ -1,4 +1,4 @@
-`flatcfg` is a python tool for serializing xls book row data into `FlatBuffers` or `protobuf` binary formats.
+`flatcfg` is a python tool for serializing Excel book row data into `FlatBuffers` or `protobuf` binary formats.
 
 `flatcfg` support full types in `FlatBuffers` and some limited `protobuf` types (`double`, `float`, `string`, `bool`, `[u]int32`, `[u]int64`).
 
@@ -14,7 +14,7 @@
 # Table
 `Table` is a basic data structure in `flatcfg`, and it's derived from `FlatBuffers`. A table present a row data, no matter how complicated it is.
 
-First we need know how define a `Table` in xls book. Suppose we have a sheet named `INFORMATION_CONFIG` as following.
+First we need know how define a `Table` in Excel book. Suppose we have a sheet named `INFORMATION_CONFIG` as following.
 
 ### INFORMATION_CONFIG
 
@@ -26,7 +26,7 @@ First we need know how define a `Table` in xls book. Suppose we have a sheet nam
 | FIELD_ACES |  |  |  |
 | FIELD_DESC | id（请按照顺序添加） | 标题 | 内容 |
 
-As you can see, we need first **5** rows to define a table structure, and there are FIELD_RULE, FIELD_TYPE, FIELD_NAME, FIELD_ACES, FIELD_DESC.
+As you can see, we need first **5** rows to define a table structure, and there are **FIELD_RULE**, **FIELD_TYPE**, **FIELD_NAME**, **FIELD_ACES**, **FIELD_DESC**.
 
 **FIELD_RULE**: field rule type (optional, required, repeated), same meanings with those in `protobuf`</br>
 **FIELD_TYPE**: field type as above</br>
@@ -36,7 +36,7 @@ As you can see, we need first **5** rows to define a table structure, and there 
 
 Run the following command line
 ```sh
-python3 flatcfg.py -f ~/Downloads/foo.xlsx
+python3 flatcfg.py -f ~/Downloads/foo.Excelx
 ```
 You will get `FlatBuffers` schema file
 
@@ -58,7 +58,7 @@ table INFORMATION_CONFIG_ARRAY
 root_type INFORMATION_CONFIG_ARRAY;
 ```
 
-Run `python3 flatcfg.py -f ~/Downloads/foo.xlsx`, you'll get `protobuf` message file.
+Run `python3 flatcfg.py -f ~/Downloads/foo.Excelx`, you'll get `protobuf` message file.
 
 ```protobuf
 syntax = "proto2";
@@ -77,7 +77,7 @@ message INFORMATION_CONFIG_ARRAY
 }
 
 ```
-When `schema`/`message` files are generated, `flatcfg` will use there files to serialize xls book data into binary formats, which you could deserialize into runtime objects with libraries from `FlatBuffers`/`protobuf`.
+When `schema`/`message` files are generated, `flatcfg` will use there files to serialize Excel book data into binary formats, which you could deserialize into runtime objects with libraries from `FlatBuffers`/`protobuf`.
 
 # Nest
 
@@ -408,7 +408,7 @@ Both `FlatBuffers` and `protobuf` support `enum` type, `flatcfg` also support `e
 | FIELD_ACES |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |
 | FIELD_DESC | id | 邮件目标条件类型 | zone_id | 版本号 | 语言（CLT_TYPE_ALL 全部发，CLT_TYPE_JP 发日本玩家，CLT_TYPE_CH 发中文 0CLT_TYPE_NONE， 发其他国家，其他值忽略） | 是否把邮件内容copy一封到db | 标题 | 内容 | 是否上架 | 描述 | 邮件类型 | 客户端跳转 | 跳转到web | 过期天数 | 开始时间 | 结束时间 | 礼包id |
 
-Let's inspect `condition_type` field in this exmaple, there's `enum.MaillConditionType` in the type cell, the type is defined above, this is a extend type, you can custom enum type and prepend `enum.` before the enum type name, then `flatcfg` will parse all field values as a enum case, and also generate a enum class for you, e.g.
+Let's inspect `condition_type` field in this exmaple, there's `enum.MaillConditionType` in the type cell, the type is defined above, this is a extend type, you can custom enum type by prepending `enum.` before the enum type name, then `flatcfg` will parse all field values as a enum case, and also generate a enum class for you, e.g.
 
 ```csharp
 enum MailConditionType:ubyte
@@ -416,7 +416,7 @@ enum MailConditionType:ubyte
     MCT_TYPE_EVENT = 0
 }
 ```
-And if you assign a default value to `condition_type` field like `condition_type=MCT_NONE`, then the enum definition will be as following, and will assign the defualt value to those empty cells.
+And if you assign a default value to `condition_type` field like `condition_type=MCT_NONE`, then the enum definition will be as following, and will assign the default value to those empty cells.
 
 ```csharp
 enum MailConditionType:ubyte

@@ -131,6 +131,9 @@ class ArrayFieldObject(FieldObject):
     @property
     def count(self) -> int: return self.__count
 
+    def equal(self, f:'ArrayFieldObject'):
+        return f.table.equal(self.table)
+
 class TableFieldObject(FieldObject):
     def __init__(self, member_count:int = 0):
         super(TableFieldObject, self).__init__()

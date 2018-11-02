@@ -177,10 +177,10 @@ class TableFieldObject(FieldObject):
 
 class Codec(object):
     def __init__(self):
-        self.time_zone = 8
+        self.time_zone:float = 8.0
         self.debug:bool = True
 
-    def set_timezone(self, time_zone:int):
+    def set_timezone(self, time_zone:float):
         self.time_zone = time_zone
 
     def log(self, indent=0, *kwargs):
@@ -246,6 +246,8 @@ class Codec(object):
         elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return '0'
         elif t == FieldType.double or re.match(r'^float\d*$', t.name): return '0'
         elif t == FieldType.bool: return 'false'
+        elif t == FieldType.date: return '0'
+        elif t == FieldType.duration: return '0'
         else: return ''
 
     def parse_scalar(self, v:str, ftype:FieldType):
@@ -1129,7 +1131,7 @@ if __name__ == '__main__':
     arguments.add_argument('--error', '-e', action='store_true', help='raise error to console')
     arguments.add_argument('--auto-default-case', '-c', action='store_true', help='auto generate a NONE default case for each enum')
     arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
-    arguments.add_argument('--time-zone', '-z', default=8, type=int, help='time zone for parsing date time')
+    arguments.add_argument('--time-zone', '-z', default=8.0, type=float, help='time zone for parsing date time')
     arguments.add_argument('--compatible-mode', '-i', action='store_true', help='for private use')
     arguments.add_argument('--access', '-a', choices=FieldAccess.get_option_choices(), default='default')
     options = arguments.parse_args(sys.argv[1:])

@@ -54,6 +54,14 @@ class FieldRule(enum.Enum):
 class FieldAccess(enum.Enum):
     default, client, server = range(3)
 
+    @classmethod
+    def get_option_choices(cls):
+        return [name for name in cls.__members__]
+
+    @classmethod
+    def get_value(cls, name:str)->'FieldAccess':
+        return cls.__members__.get(name) if name in cls.__members__ else FieldAccess.default
+
 class FieldObject(object):
     def __init__(self):
         self.name:str = None
@@ -291,12 +299,29 @@ class BookEncoder(Codec):
         self.sheet:xlrd.sheet.Sheet = None
         self.module_map = {}
         self.cursor:int = -1
+        self.access:FieldAccess = FieldAccess.default
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
 
     def get_indent(self, depth:int)->str:
         return ' '*depth*4
+
+    def get_field_accessible(self, field:FieldObject)->bool:
+        return self.access == FieldAccess.default \
+               or field.access == FieldAccess.default \
+               or field.access == self.access
+
+    def get_table_accessible(self, table:TableFieldObject)->bool:
+        if not self.get_field_accessible(table): return False
+        access_count = 0
+        for field in table.member_fields:
+            if self.get_field_accessible(field): access_count += 1
+        return access_count > 0
+
+    def get_array_accessible(self, array:ArrayFieldObject):
+        if not self.get_field_accessible(array): return False
+        return self.get_table_accessible(array.table)
 
     def init(self, sheet:xlrd.sheet.Sheet):
         self.sheet = sheet
@@ -357,15 +382,20 @@ class ProtobufEncoder(BookEncoder):
         indent = self.get_indent(1)
         buffer.write('message {}\n'.format(table.type_name))
         buffer.write('{\n')
+        field_number = 0
         for n in range(len(table.member_fields)):
             member = table.member_fields[n]
+            if not self.get_field_accessible(member): continue
+            field_number += 1
             assert member.rule, member
             buffer.write('{}{} '.format(indent, member.rule.name))
             if isinstance(member, TableFieldObject):
+                if not self.get_table_accessible(member): continue
                 nest_table_list.append(member)
                 assert member.type_name
                 buffer.write(member.type_name)
             elif isinstance(member, ArrayFieldObject):
+                if not self.get_array_accessible(member): continue
                 assert member.table
                 nest_table_list.append(member.table)
                 buffer.write(member.table.type_name)
@@ -379,7 +409,7 @@ class ProtobufEncoder(BookEncoder):
             else:
                 assert member.type, member
                 buffer.write(member.type.name)
-            buffer.write(' {} = {}'.format(member.name, n + 1))
+            buffer.write(' {} = {}'.format(member.name, field_number))
             if member.name.lower() == 'id': pass
             elif member.type not in (FieldType.table, FieldType.array) and member.rule != FieldRule.repeated:
                 if member.default: buffer.write('[default = {}]'.format(member.default))
@@ -540,13 +570,16 @@ class FlatbufEncoder(BookEncoder):
         buffer.write('table {}\n'.format(table.type_name))
         buffer.write('{\n')
         for member in table.member_fields:
+            if not self.get_field_accessible(member): continue
             buffer.write('{}{}:'.format(indent, member.name))
             type_format = '[{}]' if member.rule == FieldRule.repeated else '{}'
             if isinstance(member, TableFieldObject):
+                if not self.get_table_accessible(member): continue
                 nest_table_list.append(member)
                 assert member.name
                 buffer.write(member.type_name)
             elif isinstance(member, ArrayFieldObject):
+                if not self.get_array_accessible(member): continue
                 assert member.table
                 nest_table_list.append(member.table)
                 buffer.write('[{}]'.format(member.table.type_name))
@@ -1080,6 +1113,7 @@ class SheetSerializer(Codec):
             field.import_cases(self.__get_unique_values(field.offset), auto_default_case)
         with open(self.__enum_filepath, 'w+') as fp:
             json.dump(self.__enum_map, fp, indent=4)
+        if not encoder.get_table_accessible(self.__root): return
         encoder.init(sheet=self.__sheet)
         encoder.save_enums(enum_map=self.__enum_map)
         encoder.save_syntax(table=self.__root, include_enum=self.has_enum)
@@ -1096,7 +1130,8 @@ if __name__ == '__main__':
     arguments.add_argument('--auto-default-case', '-c', action='store_true', help='auto generate a NONE default case for each enum')
     arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
     arguments.add_argument('--time-zone', '-z', default=8, type=int, help='time zone for parsing date time')
-    arguments.add_argument('--compatible-mode', '-a', action='store_true', help='for private use')
+    arguments.add_argument('--compatible-mode', '-i', action='store_true', help='for private use')
+    arguments.add_argument('--access', '-a', choices=FieldAccess.get_option_choices(), default='default')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -1111,6 +1146,7 @@ if __name__ == '__main__':
                     encoder = ProtobufEncoder(workspace=options.workspace, debug=options.debug)
                 else:
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
+                encoder.access = FieldAccess.get_value(options.access)
                 encoder.set_package_name(options.namespace)
                 encoder.set_timezone(options.time_zone)
                 serializer.pack(encoder, auto_default_case=options.auto_default_case)

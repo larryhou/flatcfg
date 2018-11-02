@@ -1,4 +1,4 @@
-`flatcfg` is a python tool for serializing xls book row data into `FlatBuffers` or `protobuf` formats.
+`flatcfg` is a python tool for serializing xls book row data into `FlatBuffers` or `protobuf` binary formats.
 
 `flatcfg` support full types in `FlatBuffers` and some limited `protobuf` types (`double`, `float`, `string`, `bool`, `[u]int32`, `[u]int64`).
 
@@ -28,11 +28,11 @@ First we need know how define a `Table` in xls book. Suppose we have a sheet nam
 
 As you can see, we need first **5** rows to define a table structure, and there are FIELD_RULE, FIELD_TYPE, FIELD_NAME, FIELD_ACES, FIELD_DESC.
 
-FIELD_RULE: field rule type (optional, required, repeated), same meanings with those in `protobuf`</br>
-FIELD_TYPE: field type as above</br>
-FIELD_NAME: field name used for generating table structure, if equal mark `=` comes after it, the second part will the default value for this field. And if the field is a `Table` or `Array` then the second part will be the nest type name.</br>
-FIELD_ACES: this is used for special purpose, e.g. generating different sirialized data from same table</br>
-FIELD_DESC: for field description/comments
+**FIELD_RULE**: field rule type (optional, required, repeated), same meanings with those in `protobuf`</br>
+**FIELD_TYPE**: field type as above</br>
+**FIELD_NAME**: field name used for generating table structure, if equal mark `=` comes after it, the second part will the default value for this field. And if the field is a `Table` or `Array` then the second part will be the nest type name.</br>
+**FIELD_ACES**: this is used for special purpose, e.g. generating different sirialized data from same table</br>
+**FIELD_DESC**: for field description/comments
 
 Run the following command line
 ```sh

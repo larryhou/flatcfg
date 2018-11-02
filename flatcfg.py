@@ -1094,7 +1094,6 @@ if __name__ == '__main__':
     arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
     arguments.add_argument('--time-zone', '-z', default=8, type=int, help='time zone for parsing date time')
     arguments.add_argument('--compatible-mode', '-a', action='store_true', help='for private use')
-    arguments.add_argument('--csharp', '-s', action='store_true', help='script target')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -1112,9 +1111,6 @@ if __name__ == '__main__':
                 encoder.set_package_name(options.namespace)
                 encoder.set_timezone(options.time_zone)
                 serializer.pack(encoder, auto_default_case=options.auto_default_case)
-                if options.csharp:
-                    generator = SerializeScriptGenerator(serializer.root_table, debug=options.debug)
-                    generator.generate(workspace=options.workspace, target_name=script_target_names.csharp)
             except Exception as error:
                 if options.error: raise error
                 else: continue

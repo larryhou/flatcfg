@@ -188,8 +188,8 @@ class FixedCodec(object):
         self.__min_integer_value = -((1 << (self.__integer_bits - 1)) - 0)
         self.__max_memory = (1 << (type_size - 1)) - 1
         self.__min_memory = (1 << (type_size - 1))
-        self.__fraction_mask = self.__scaling - 1
-        self.__integer_mask = (1 << self.__integer_bits) - 1
+        # self.__fraction_mask = self.__scaling - 1
+        # self.__integer_mask = (1 << self.__integer_bits) - 1
         self.__type_mask = (1 << type_size) - 1
         self.__type_size = type_size
         self.__sign_mask = 1 << (self.__type_size - 1)

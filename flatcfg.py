@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import enum, xlrd, re, io, json, os, hashlib, time, datetime
+import enum, xlrd, re, io, json, os, hashlib, datetime
 import os.path as p
 from typing import Dict
 import operator
@@ -13,7 +13,8 @@ ROW_ACES_INDEX, \
 ROW_DESC_INDEX, \
 ROW_DATA_INDEX = range(6)
 
-SHARED_ENUM_NAME = 'shared_enum'
+SHARED_PREFIX = 'shared_'
+SHARED_ENUM_NAME = '{}enum'.format(SHARED_PREFIX)
 ROOT_CLASS_TEMPLATE = '{}_ARRAY'
 
 class FieldType(enum.Enum):
@@ -62,6 +63,9 @@ class FieldAccess(enum.Enum):
     def get_value(cls, name:str)->'FieldAccess':
         return cls.__members__.get(name) if name in cls.__members__ else FieldAccess.default
 
+class FieldTag(enum.Enum):
+    none, fixed_float32, fixed_float64 = range(3)
+
 class FieldObject(object):
     def __init__(self):
         self.name:str = None
@@ -72,6 +76,7 @@ class FieldObject(object):
         self.access:FieldAccess = FieldAccess.default
         self.description:str = ''
         self.default:str = ''
+        self.tag:FieldTag = FieldTag.none
 
     def fill(self, f:'FieldObject'):
         for name, value in vars(f).items():
@@ -174,6 +179,51 @@ class TableFieldObject(FieldObject):
     def __repr__(self):
         return '{} type:{} member_count:{}'.format(super(TableFieldObject, self).__repr__(), self.type_name, len( self.member_fields))
 
+class FixedCodec(object):
+    def __init__(self, fraction_bits:int, type_size:int = 32):
+        self.__fraction_bits = fraction_bits
+        self.__integer_bits = type_size - fraction_bits
+        self.__scaling = 1 << fraction_bits
+        self.__max_integer_value = +((1 << (self.__integer_bits - 1)) - 1)
+        self.__min_integer_value = -((1 << (self.__integer_bits - 1)) - 0)
+        self.__max_memory = (1 << (type_size - 1)) - 1
+        self.__min_memory = (1 << (type_size - 1))
+        self.__fraction_mask = self.__scaling - 1
+        self.__integer_mask = (1 << self.__integer_bits) - 1
+        self.__type_mask = (1 << type_size) - 1
+        self.__type_size = type_size
+        self.__sign_mask = 1 << (self.__type_size - 1)
+        self.__signed_min_memory = -(1 << (type_size - 1))
+        self.__signed_max_memory = self.__max_integer_value
+
+    @property
+    def type_size(self): return self.__type_size
+
+    @property
+    def max_value(self)->float:
+        return self.__max_integer_value + 1 - 1.0e-8
+    @property
+    def min_value(self)->float:
+        return self.__min_integer_value + 0.0
+
+    @property
+    def min_memory(self)->int: return self.__min_memory
+    @property
+    def max_memory(self)->int: return self.__max_memory
+
+    def encode(self, v:float)->int:
+        if v >= self.max_value: return self.__max_memory
+        if v <= self.min_value: return self.__min_memory
+        if v >= 0:
+            return min(int(v * self.__scaling), self.__max_memory)
+        else:
+            m = max(int(v * self.__scaling), self.__signed_min_memory)
+            return m & self.__type_mask
+
+    def decode(self, v:int)->float:
+        if (self.__sign_mask & v) > 0:
+            v = -(~(v - 1) & self.__type_mask)
+        return v / self.__scaling
 
 class Codec(object):
     def __init__(self):
@@ -302,6 +352,8 @@ class BookEncoder(Codec):
         self.module_map = {}
         self.cursor:int = -1
         self.access:FieldAccess = FieldAccess.default
+        self.fixed32_codec:FixedCodec = None
+        self.fixed64_codec:FixedCodec = None
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -337,6 +389,9 @@ class BookEncoder(Codec):
     def save_syntax(self, table: TableFieldObject, include_enum:bool = True):
         pass
 
+    def save_shared_syntax(self, tables): # type: (list[TableFieldObject])->None
+        pass
+
     def compile_schemas(self) -> str:
         pass
 
@@ -361,6 +416,7 @@ class ProtobufEncoder(BookEncoder):
     def __init__(self, workspace:str, debug:bool):
         super(ProtobufEncoder, self).__init__(workspace, debug)
         self.enum_filename = '{}.proto'.format(SHARED_ENUM_NAME)
+        self.include_protos = []
 
     def __generate_enums(self, enum_map:Dict[str, Dict[str, int]], buffer:io.StringIO = None)->str:
         if not buffer: buffer = io.StringIO()
@@ -376,9 +432,10 @@ class ProtobufEncoder(BookEncoder):
         buffer.seek(0)
         return buffer.read()
 
-    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO, visit_map = None):
+    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO, visit_map = None, ignore_tags:bool = True):
         if not visit_map: visit_map:dict[str, bool] = {}
         if visit_map.get(table.type_name): return
+        if ignore_tags and table.tag != FieldTag.none: return
         visit_map[table.type_name] = True
         nest_table_list:list[TableFieldObject] = []
         indent = self.get_indent(1)
@@ -421,7 +478,7 @@ class ProtobufEncoder(BookEncoder):
         buffer.write('}\n\n')
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer, visit_map)
-        if table.member_count == 0:
+        if table.member_count == 0 and table.tag == FieldTag.none:
             root_message_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
             buffer.write('message {}\n{{\n'.format(root_message_name))
             buffer.write('{}{} {} items = 1;\n'.format(indent, FieldRule.repeated.name, table.type_name))
@@ -429,12 +486,12 @@ class ProtobufEncoder(BookEncoder):
 
     def compile_schemas(self)->str:
         python_out = p.abspath('{}/pp'.format(self.workspace))
-        enum_schema = '{}/{}.proto'.format(self.workspace, SHARED_ENUM_NAME)
+        shared_schema = '{}/{}*.proto'.format(self.workspace, SHARED_PREFIX)
         data_schema = '{}/{}.proto'.format(self.workspace, self.sheet.name.lower())
         import shutil
         if p.exists(python_out): shutil.rmtree(python_out)
         os.makedirs(python_out)
-        command = 'protoc --proto_path={} --python_out={} {} {}'.format(self.workspace, python_out, enum_schema, data_schema)
+        command = 'protoc --proto_path={} --python_out={} {} {}'.format(self.workspace, python_out, shared_schema, data_schema)
         assert os.system(command) == 0
         return python_out
 
@@ -478,6 +535,10 @@ class ProtobufEncoder(BookEncoder):
                 items = self.parse_array(fv)
                 if isinstance(field, EnumFieldObject):
                     items = [self.parse_enum(x, field.enum) for x in items]
+                elif field.tag == FieldTag.fixed_float32:
+                    items = [self.fixed32_codec.encode(self.parse_float(x)) for x in items]
+                elif field.tag == FieldTag.fixed_float64:
+                    items = [self.fixed64_codec.encode(self.parse_float(x)) for x in items]
                 elif field.type != FieldType.string:
                     items = [self.parse_scalar(x, field.type) for x in items]
                 container = nest_object # type: list
@@ -485,6 +546,10 @@ class ProtobufEncoder(BookEncoder):
                 continue
             elif isinstance(field, EnumFieldObject):
                 fv = self.parse_enum(fv, field.enum)
+            elif field.tag == FieldTag.fixed_float32:
+                fv = self.fixed32_codec.encode(self.parse_float(fv))
+            elif field.tag == FieldTag.fixed_float64:
+                fv = self.fixed64_codec.encode(self.parse_float(fv))
             elif field.type != FieldType.string:
                 fv = self.parse_scalar(fv, field.type)
             message.__setattr__(field.name, fv)
@@ -518,6 +583,23 @@ class ProtobufEncoder(BookEncoder):
                 print('+ {}'.format(self.enum_filepath))
                 print(fp.read())
 
+    def save_shared_syntax(self, tables): # type: (list[TableFieldObject])->None
+        self.include_protos = []
+        for x in tables:
+            buffer = io.StringIO()
+            self.include_protos.append('{}{}.proto'.format(SHARED_PREFIX, x.type_name))
+            self.__generate_syntax(x, buffer, ignore_tags=False)
+            syntax_filepath = p.join(self.workspace, '{}{}.proto'.format(SHARED_PREFIX, x.type_name))
+            with open(syntax_filepath, 'w+') as fp:
+                buffer.seek(0)
+                fp.write('syntax = "proto2";\n')
+                if self.package_name:
+                    fp.write('package {};\n\n'.format(self.package_name))
+                fp.write(buffer.read())
+                fp.seek(0)
+                print('+ {}'.format(syntax_filepath))
+                print(fp.read())
+
     def save_syntax(self, table:TableFieldObject, include_enum:bool = True):
         print('# {}'.format(self.sheet.name))
         self.table = table
@@ -528,7 +610,10 @@ class ProtobufEncoder(BookEncoder):
             buffer.seek(0)
             fp.write('syntax = "proto2";\n')
             if include_enum:
-                fp.write('import "{}";\n\n'.format(self.enum_filename))
+                fp.write('import "{}.proto";\n\n'.format(SHARED_ENUM_NAME))
+            if self.include_protos:
+                for proto in self.include_protos:
+                    fp.write('import "{}";\n\n'.format(proto))
             if self.package_name:
                 fp.write('package {};\n\n'.format(self.package_name))
             fp.write(buffer.read())
@@ -543,6 +628,7 @@ class FlatbufEncoder(BookEncoder):
         self.builder = flatbuffers.builder.Builder(1*1024*1024)
         self.cursor = -1
         self.string_offsets:dict[str, int] = {}
+        self.include_schemas = []
 
     def reset(self):
         self.__init__(self.workspace, self.debug)
@@ -563,9 +649,10 @@ class FlatbufEncoder(BookEncoder):
         buffer.seek(0)
         return buffer.read()
 
-    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO, visit_map = None):
+    def __generate_syntax(self, table:TableFieldObject, buffer:io.StringIO, visit_map = None, ignore_tags:bool = True):
         if not visit_map: visit_map:dict[str, bool] = {}
         if visit_map.get(table.type_name): return
+        if ignore_tags and table.tag != FieldTag.none: return
         visit_map[table.type_name] = True
         nest_table_list:list[TableFieldObject] = []
         indent = self.get_indent(1)
@@ -605,7 +692,7 @@ class FlatbufEncoder(BookEncoder):
         buffer.write('}\n\n')
         for nest_table in nest_table_list:
             self.__generate_syntax(nest_table, buffer, visit_map)
-        if table.member_count == 0:
+        if table.member_count == 0 and table.tag == FieldTag.none:
             array_type_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
             buffer.write('table {}\n{{\n'.format(array_type_name))
             buffer.write('{}items:[{}];\n'.format(indent, table.type_name))
@@ -700,6 +787,10 @@ class FlatbufEncoder(BookEncoder):
                     items = [self.__encode_string(x) for x in items]
                 elif isinstance(field, EnumFieldObject):
                     items = [self.parse_enum(x, field.enum) for x in items]
+                elif field.tag == FieldTag.fixed_float32:
+                    items = [self.fixed32_codec.encode(self.parse_float(x)) for x in items]
+                elif field.tag == FieldTag.fixed_float64:
+                    items = [self.fixed64_codec.encode(self.parse_float(x)) for x in items]
                 else:
                     items = [self.parse_scalar(x, field.type) for x in items]
                 offset = self.__encode_vector(module_name, items, field)
@@ -717,6 +808,10 @@ class FlatbufEncoder(BookEncoder):
                 fv = offset_map.get(field.name)
             elif isinstance(field, EnumFieldObject):
                 fv = self.parse_enum(fv, field.enum)
+            elif field.tag == FieldTag.fixed_float32:
+                fv = self.fixed32_codec.encode(self.parse_float(fv))
+            elif field.tag == FieldTag.fixed_float64:
+                fv = self.fixed64_codec.encode(self.parse_float(fv))
             else:
                 fv = self.parse_scalar(fv, field.type)
             self.add_field(module_name, field.name, fv)
@@ -724,11 +819,11 @@ class FlatbufEncoder(BookEncoder):
 
     def compile_schemas(self)->str:
         python_out = p.abspath('{}/fp'.format(self.workspace))
-        enum_schema = '{}/{}.fbs'.format(self.workspace, SHARED_ENUM_NAME)
+        shared_schema = '{}/{}*.fbs'.format(self.workspace, SHARED_PREFIX)
         data_schema = '{}/{}.fbs'.format(self.workspace, self.sheet.name.lower())
         import shutil
         if p.exists(python_out): shutil.rmtree(python_out)
-        command = 'flatc -p -o {} {} {}'.format(python_out, enum_schema, data_schema)
+        command = 'flatc -p -o {} {} {}'.format(python_out, shared_schema, data_schema)
         assert os.system(command) == 0
         return python_out
 
@@ -824,6 +919,22 @@ class FlatbufEncoder(BookEncoder):
                 print('+ {}'.format(self.enum_filepath))
                 print(fp.read())
 
+    def save_shared_syntax(self, tables): # type: (list[TableFieldObject])->None
+        self.include_schemas = []
+        for x in tables:
+            buffer = io.StringIO()
+            self.include_schemas.append('{}{}.fbs'.format(SHARED_PREFIX, x.type_name))
+            self.__generate_syntax(x, buffer, ignore_tags=False)
+            syntax_filepath = p.join(self.workspace, '{}{}.fbs'.format(SHARED_PREFIX, x.type_name))
+            with open(syntax_filepath, 'w+') as fp:
+                buffer.seek(0)
+                if self.package_name:
+                    fp.write('namespace {};\n\n'.format(self.package_name))
+                fp.write(buffer.read())
+                fp.seek(0)
+                print('+ {}'.format(syntax_filepath))
+                print(fp.read())
+
     def save_syntax(self, table:TableFieldObject, include_enum:bool = True):
         self.table = table
         print('# {}'.format(self.sheet.name))
@@ -833,7 +944,10 @@ class FlatbufEncoder(BookEncoder):
             self.__generate_syntax(table, buffer)
             buffer.seek(0)
             if include_enum:
-                fp.write('include "{}";\n\n'.format(self.enum_filename))
+                fp.write('include "{}.fbs";\n\n'.format(SHARED_ENUM_NAME))
+            if self.include_schemas:
+                for schema in self.include_schemas:
+                    fp.write('include "{}";\n\n'.format(schema))
             if self.package_name:
                 fp.write('namespace {};\n\n'.format(self.package_name))
             fp.write(buffer.read())
@@ -954,6 +1068,9 @@ class SheetSerializer(Codec):
             with open(self.__enum_filepath) as fp:
                 self.__enum_map: dict[str, dict[str, int]] = json.load(fp)
         self.compatible_mode = False
+        self.fixed32_codec:FixedCodec = None
+        self.fixed64_codec:FixedCodec = None
+        self.fixed_tables:list[TableFieldObject] = [None, None]
 
     @property
     def root_table(self)->TableFieldObject:return self.__root
@@ -972,6 +1089,22 @@ class SheetSerializer(Codec):
         if prefix and prefix.find('_'):
             prefix = self.make_camel(prefix, force=True)
         return prefix + table_name if prefix else table_name
+
+    def __hook_fixed_float(self, field:FieldObject, codec:FixedCodec)->TableFieldObject:
+        table = TableFieldObject(member_count=1)
+        table.name = field.name
+        table.type_name = 'FixedFloat{}'.format(codec.type_size)
+        holder = FieldObject()
+        holder.fill(field)
+        holder.name = 'memory'
+        holder.type = FieldType.uint32 if codec.type_size == 32 else FieldType.uint64
+        holder.rule = FieldRule.optional
+        holder.default = '0'
+        holder.tag = FieldTag.fixed_float32 if codec.type_size == 32 else FieldTag.fixed_float64
+        holder.description = 'representation of float{} value'.format(codec.type_size)
+        table.member_fields.append(holder)
+        table.tag = holder.tag
+        return table
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
         self.log(depth, '[ARRAY] col:{} count:{}'.format(self.abc(column-1), array.count))
@@ -1076,6 +1209,12 @@ class SheetSerializer(Codec):
             elif isinstance(field, TableFieldObject):
                 assert field.type == FieldType.table
                 c = self.__parse_table(field, sheet, c, depth=depth + 1)
+            if self.fixed32_codec and field.type in (FieldType.float, FieldType.float32):
+                field = self.__hook_fixed_float(field, self.fixed32_codec)
+                self.fixed_tables[0] = field
+            elif self.fixed64_codec and field.type in (FieldType.double, FieldType.float64):
+                field = self.__hook_fixed_float(field, self.fixed64_codec)
+                self.fixed_tables[1] = field
             assert not table.has_member(field.name), '{} {}'.format(field.name, self.abc(field.offset))
             member_fields.append(field)
             if 0 < table.member_count == len(member_fields):
@@ -1116,8 +1255,14 @@ class SheetSerializer(Codec):
         with open(self.__enum_filepath, 'w+') as fp:
             json.dump(self.__enum_map, fp, indent=4)
         if not encoder.get_table_accessible(self.__root): return
+        encoder.fixed32_codec = self.fixed32_codec
+        encoder.fixed64_codec = self.fixed64_codec
         encoder.init(sheet=self.__sheet)
         encoder.save_enums(enum_map=self.__enum_map)
+        shared_tables = []
+        for x in self.fixed_tables:
+            if x: shared_tables.append(x)
+        if shared_tables: encoder.save_shared_syntax(tables=shared_tables)
         encoder.save_syntax(table=self.__root, include_enum=self.has_enum)
         encoder.encode()
 
@@ -1134,6 +1279,11 @@ if __name__ == '__main__':
     arguments.add_argument('--time-zone', '-z', default=8.0, type=float, help='time zone for parsing date time')
     arguments.add_argument('--compatible-mode', '-i', action='store_true', help='for private use')
     arguments.add_argument('--access', '-a', choices=FieldAccess.get_option_choices(), default='default')
+    # arguments for fixed float encoding
+    arguments.add_argument('--fixed32-fraction-bits', default=10, type=int, help='use 2^exponent to present fractional part of a float32 value')
+    arguments.add_argument('--fixed64-fraction-bits', default=20, type=int, help='use 2^exponent to present fractional part of a float64 value')
+    arguments.add_argument('--fixed64', '-8', action='store_true', help='encoding double field values into FixedFloat64 type')
+    arguments.add_argument('--fixed32', '-4', action='store_true', help='encode float field values into FixedFloat32 type')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -1142,6 +1292,10 @@ if __name__ == '__main__':
             if not sheet_name.isupper(): continue
             serializer = SheetSerializer(debug=options.debug)
             serializer.compatible_mode = options.compatible_mode
+            if options.fixed32:
+                serializer.fixed32_codec = FixedCodec(fraction_bits=options.fixed32_fraction_bits, type_size=32)
+            if options.fixed64:
+                serializer.fixed64_codec = FixedCodec(fraction_bits=options.fixed64_fraction_bits, type_size=64)
             try:
                 serializer.parse_syntax(book.sheet_by_name(sheet_name))
                 if options.use_protobuf:

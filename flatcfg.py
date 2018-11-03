@@ -188,8 +188,6 @@ class FixedCodec(object):
         self.__min_integer_value = -((1 << (self.__integer_bits - 1)) - 0)
         self.__max_memory = (1 << (type_size - 1)) - 1
         self.__min_memory = (1 << (type_size - 1))
-        # self.__fraction_mask = self.__scaling - 1
-        # self.__integer_mask = (1 << self.__integer_bits) - 1
         self.__type_mask = (1 << type_size) - 1
         self.__type_size = type_size
         self.__sign_mask = 1 << (self.__type_size - 1)
@@ -954,101 +952,6 @@ class FlatbufEncoder(BookEncoder):
             fp.seek(0)
             print('+ {}'.format(self.syntax_filepath))
             print(fp.read())
-
-class script_target_names(object):
-    python = 'python'
-    csharp = 'csharp'
-
-class SerializeScriptGenerator(Codec):
-    def __init__(self, table:TableFieldObject, debug:bool):
-        super(SerializeScriptGenerator, self).__init__()
-        self.table = table
-        self.debug = debug
-        self.output_path:str = None
-        self.target_name:str = None
-
-    def dump_type_map(self, table, visit_map = None): # type: (TableFieldObject, dict)->dict[str, dict[str, tuple[str, FieldRule, FieldType]]]
-        if visit_map is None: visit_map = {}
-        for field in table.member_fields:
-            if isinstance(field, ArrayFieldObject):
-                self.dump_type_map(field.table, visit_map)
-            elif isinstance(field, TableFieldObject):
-                self.dump_type_map(field, visit_map)
-        type_map = visit_map[table.type_name] = {} # type: dict[str, tuple[str, FieldRule, FieldType]]
-        for field in table.member_fields:
-            if isinstance(field, ArrayFieldObject):
-                type_map[field.name] = (field.table.type_name, field.rule, field.type)
-            elif isinstance(field, TableFieldObject):
-                type_map[field.name] = (field.type_name, field.rule, field.type)
-            elif isinstance(field, EnumFieldObject):
-                type_map[field.name] = (field.enum, field.rule, field.type)
-            else:
-                type_map[field.name] = (type_presets.alias(field.type).name, field.rule, field.type)
-        type_name = ROOT_CLASS_TEMPLATE.format(table.type_name)
-        type_map = visit_map[type_name] = {}
-        type_map['items'] = (table.type_name, FieldRule.repeated, FieldType.array)
-        return visit_map
-
-    def get_declaraion(self, line:str):
-        step = 0
-        item = ''
-        components = []
-        for c in line:
-            if c in '{(':
-                if item: components.append(item)
-                break
-            if step == 0:
-                if c == ' ': continue
-                step = 1
-            if step == 1:
-                if c == ' ':
-                    step = 0
-                    components.append(item)
-                    item = ''
-                    if len(components) == 3: break
-                    continue
-                item += c
-        return ' '.join(components)
-
-    def restore_csharp_field_names(self):
-        type_map = self.dump_type_map(self.table)
-        csharp_field_map = {}
-        for class_name, field_map in type_map.items():
-            for name, info in field_map.items():
-                pattern = 'public {} {}'
-                if info[2] == FieldType.array:
-                    pattern = 'public {}? {}'
-                k = pattern.format(info[0], self.make_camel(name))
-                v = pattern.format(info[0], name)
-                csharp_field_map[k] = v
-        import tempfile, shutil
-        for base_path, _, file_name_list in os.walk(self.output_path):
-            for file_name in file_name_list:
-                module_name = self.table.type_name.lower()
-                if not file_name.endswith('.cs') or not file_name.startswith(module_name): continue
-                file_path = p.join(base_path, file_name)
-                self.log(0, file_path)
-                temp_filepath = tempfile.mktemp('_{}'.format(file_name))
-                buffer = open(temp_filepath, 'w+')
-                with open(file_path, 'r+') as fp:
-                    for line in fp.readlines():
-                        trim_line = line.lstrip()
-                        if trim_line.startswith('public'):
-                            pattern = self.get_declaraion(trim_line)
-                            if not pattern.startswith('public static') and pattern in csharp_field_map:
-                                line = line.replace(pattern, csharp_field_map.get(pattern))
-                                self.log(0, line)
-                        buffer.write(line)
-                buffer.close()
-                shutil.move(buffer.name, fp.name)
-
-    def generate(self, workspace:str, target_name:str = script_target_names.csharp):
-        self.output_path = p.join(p.abspath(workspace), target_name)
-        self.target_name = target_name
-        command = 'flatc --gen-onefile --{} -o {} {}/{}.fbs'.format(target_name, self.output_path, workspace, self.table.type_name.lower())
-        assert os.system(command) == 0
-        if target_name == script_target_names.csharp:
-            self.restore_csharp_field_names()
 
 class SheetSerializer(Codec):
     def __init__(self, debug = True):

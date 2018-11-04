@@ -139,6 +139,7 @@ class ArrayFieldObject(FieldObject):
         super(ArrayFieldObject, self).__init__()
         self.type = FieldType.array
         self.table: TableFieldObject = None
+        self.elements: [TableFieldObject] = []
         self.__count:int = count
         assert count > 0
 
@@ -510,26 +511,24 @@ class ProtobufEncoder(BookEncoder):
         return enum_type.Value(case_name)
 
     def __encode_array(self, container, field:ArrayFieldObject):
-        table_size = field.table.size
         item_count = 0 # field.count
         cell = self.sheet.cell(self.cursor, field.offset)
         if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
             if 0 < count <= field.count: item_count = count
         for n in range(item_count):
-            column_offset = n * table_size
             message = container.add() # type: object
-            self.__encode_table(field.table, column_offset, message)
+            self.__encode_table(field.elements[n], message)
 
     def __encode_fixed_floats(self, container, memories):
         for m in memories:
             f = container.add() # type: object
             f.__setattr__(FIXED_MEMORY_NAME, m)
 
-    def __encode_table(self, table:TableFieldObject, column_offset:int = 0, message:object = None):
+    def __encode_table(self, table:TableFieldObject, message:object = None):
         if not message: message = self.create_message_object(table.type_name)
         for field in table.member_fields:
-            fv = str(self.sheet.cell(self.cursor, field.offset + column_offset).value).strip()
+            fv = str(self.sheet.cell(self.cursor, field.offset).value).strip()
             nest_object = message.__getattribute__(field.name)
             if isinstance(field, TableFieldObject) and field.rule != FieldRule.repeated:
                 self.__encode_table(field, message=nest_object)
@@ -710,17 +709,14 @@ class FlatbufEncoder(BookEncoder):
             buffer.write('root_type {};\n'.format(array_type_name))
 
     def __encode_array(self, module_name, field): # type: (str, ArrayFieldObject)->int
-        table_size = field.table.size
         item_offsets:list[int] = []
-
         item_count = 0 # field.count
         cell = self.sheet.cell(self.cursor, field.offset)
         if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
             if 0 < count <= field.count: item_count = count
         for n in range(item_count):
-            column_offset = table_size * n
-            offset = self.__encode_table(field.table, column_offset)
+            offset = self.__encode_table(field.elements[n])
             item_offsets.append(offset)
         return self.__encode_vector(module_name, item_offsets, field)
 
@@ -788,16 +784,16 @@ class FlatbufEncoder(BookEncoder):
             offset_list.append(offset)
         return offset_list
 
-    def __encode_table(self, table, column_offset = 0): # type: (TableFieldObject, int)->int
+    def __encode_table(self, table): # type: (TableFieldObject)->int
         offset_map:dict[str, int] = {}
         module_name = table.type_name
         row_items = self.sheet.row(self.cursor)
         member_count = len(table.member_fields)
         for n in range(member_count):
             field = table.member_fields[n]
-            fv = str(row_items[field.offset + column_offset].value).strip()
+            fv = str(row_items[field.offset].value).strip()
             if isinstance(field, TableFieldObject) and field.rule != FieldRule.repeated:
-                offset = self.__encode_table(field, column_offset)
+                offset = self.__encode_table(field)
             elif isinstance(field, ArrayFieldObject):
                 offset = self.__encode_array(module_name, field)
             elif field.rule == FieldRule.repeated:
@@ -826,7 +822,7 @@ class FlatbufEncoder(BookEncoder):
         self.start_object(module_name)
         for n in range(member_count):
             field = table.member_fields[n]
-            fv = str(row_items[field.offset + column_offset].value).strip()
+            fv = str(row_items[field.offset].value).strip()
             if field.name in offset_map:
                 fv = offset_map.get(field.name)
             elif isinstance(field, EnumFieldObject):
@@ -1057,14 +1053,17 @@ class SheetSerializer(Codec):
             array.name = table.name
         c = self.__parse_table(table, sheet, c, depth=depth + 1)
         array.table = table
+        array.elements.append(table)
         count = 1
         if array.count > count:
             while c < sheet.ncols:
                 element = TableFieldObject(table.member_count)
                 element.name = table.name
                 element.type_name = table.type_name
+                element.offset = c
                 c = self.__parse_table(element, sheet, c, depth=depth + 1)
                 assert element.equal(table), element
+                array.elements.append(element)
                 count += 1
                 if count >= array.count:
                     position = c

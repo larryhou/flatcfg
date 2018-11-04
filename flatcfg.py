@@ -353,6 +353,7 @@ class BookEncoder(Codec):
         self.access:FieldAccess = FieldAccess.default
         self.fixed32_codec:FixedCodec = None
         self.fixed64_codec:FixedCodec = None
+        self.signed_encoding:bool = True
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -540,11 +541,11 @@ class ProtobufEncoder(BookEncoder):
                 if isinstance(field, EnumFieldObject):
                     items = [self.parse_enum(x, field.enum) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
-                    items = [self.fixed32_codec.encode(self.parse_float(x)) for x in items]
+                    items = [self.fixed32_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
                     self.__encode_fixed_floats(nest_object, items)
                     continue
                 elif field.tag == FieldTag.fixed_float64:
-                    items = [self.fixed64_codec.encode(self.parse_float(x)) for x in items]
+                    items = [self.fixed64_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
                     self.__encode_fixed_floats(nest_object, items)
                     continue
                 elif field.type != FieldType.string:
@@ -555,9 +556,9 @@ class ProtobufEncoder(BookEncoder):
             elif isinstance(field, EnumFieldObject):
                 fv = self.parse_enum(fv, field.enum)
             elif field.tag == FieldTag.fixed_float32:
-                fv = self.fixed32_codec.encode(self.parse_float(fv))
+                fv = self.fixed32_codec.encode(self.parse_float(fv), self.signed_encoding)
             elif field.tag == FieldTag.fixed_float64:
-                fv = self.fixed64_codec.encode(self.parse_float(fv))
+                fv = self.fixed64_codec.encode(self.parse_float(fv), self.signed_encoding)
             elif field.type != FieldType.string:
                 fv = self.parse_scalar(fv, field.type)
             message.__setattr__(field.name, fv)
@@ -806,11 +807,11 @@ class FlatbufEncoder(BookEncoder):
                     items = [self.parse_enum(x, field.enum) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
                     assert isinstance(field, TableFieldObject)
-                    items = [self.fixed32_codec.encode(self.parse_float(x)) for x in items]
+                    items = [self.fixed32_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
                     items = self.__encode_fixed_floats(field, items)
                 elif field.tag == FieldTag.fixed_float64:
                     assert isinstance(field, TableFieldObject)
-                    items = [self.fixed64_codec.encode(self.parse_float(x)) for x in items]
+                    items = [self.fixed64_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
                     items = self.__encode_fixed_floats(field, items)
                 else:
                     items = [self.parse_scalar(x, field.type) for x in items]
@@ -830,9 +831,9 @@ class FlatbufEncoder(BookEncoder):
             elif isinstance(field, EnumFieldObject):
                 fv = self.parse_enum(fv, field.enum)
             elif field.tag == FieldTag.fixed_float32:
-                fv = self.fixed32_codec.encode(self.parse_float(fv))
+                fv = self.fixed32_codec.encode(self.parse_float(fv), self.signed_encoding)
             elif field.tag == FieldTag.fixed_float64:
-                fv = self.fixed64_codec.encode(self.parse_float(fv))
+                fv = self.fixed64_codec.encode(self.parse_float(fv), self.signed_encoding)
             else:
                 fv = self.parse_scalar(fv, field.type)
             self.add_field(module_name, field.name, fv)
@@ -997,6 +998,7 @@ class SheetSerializer(Codec):
         self.fixed32_codec:FixedCodec = None
         self.fixed64_codec:FixedCodec = None
         self.fixed_tables:list[TableFieldObject] = [None, None]
+        self.signed_encoding:bool = True
 
     @property
     def root_table(self)->TableFieldObject:return self.__root
@@ -1024,7 +1026,10 @@ class SheetSerializer(Codec):
         holder = FieldObject()
         holder.fill(field)
         holder.name = FIXED_MEMORY_NAME
-        holder.type = FieldType.int32 if codec.type_size == 32 else FieldType.int64
+        if self.signed_encoding:
+            holder.type = FieldType.int32 if codec.type_size == 32 else FieldType.int64
+        else:
+            holder.type = FieldType.uint32 if codec.type_size == 32 else FieldType.uint64
         holder.rule = FieldRule.optional
         holder.default = '0'
         holder.tag = FieldTag.fixed_float32 if codec.type_size == 32 else FieldTag.fixed_float64
@@ -1183,6 +1188,7 @@ class SheetSerializer(Codec):
         with open(self.__enum_filepath, 'w+') as fp:
             json.dump(self.__enum_map, fp, indent=4)
         if not encoder.get_table_accessible(self.__root): return
+        encoder.signed_encoding = self.signed_encoding
         encoder.fixed32_codec = self.fixed32_codec
         encoder.fixed64_codec = self.fixed64_codec
         encoder.init(sheet=self.__sheet)
@@ -1208,10 +1214,11 @@ if __name__ == '__main__':
     arguments.add_argument('--compatible-mode', '-i', action='store_true', help='for private use')
     arguments.add_argument('--access', '-a', choices=FieldAccess.get_option_choices(), default='default')
     # arguments for fixed float encoding
-    arguments.add_argument('--fixed32-fraction-bits', default=10, type=int, help='use 2^exponent to present fractional part of a float32 value')
-    arguments.add_argument('--fixed64-fraction-bits', default=20, type=int, help='use 2^exponent to present fractional part of a float64 value')
-    arguments.add_argument('--fixed64', '-8', action='store_true', help='encoding double field values into FixedFloat64 type')
-    arguments.add_argument('--fixed32', '-4', action='store_true', help='encode float field values into FixedFloat32 type')
+    arguments.add_argument('--fixed32-fraction-bits', '-b32', default=10, type=int, help='use 2^exponent to present fractional part of a float32 value')
+    arguments.add_argument('--fixed64-fraction-bits', '-b64', default=20, type=int, help='use 2^exponent to present fractional part of a float64 value')
+    arguments.add_argument('--fixed64', '-64', action='store_true', help='encode double field values into FixedFloat64 type')
+    arguments.add_argument('--fixed32', '-32', action='store_true', help='encode float field values into FixedFloat32 type')
+    arguments.add_argument('--unsigned-encoding', '-0', action='store_true', help='encode fixed memory value into unsign integer type')
     options = arguments.parse_args(sys.argv[1:])
     for book_filepath in options.book_file:
         print('>>> {}'.format(book_filepath))
@@ -1220,6 +1227,7 @@ if __name__ == '__main__':
             if not sheet_name.isupper(): continue
             serializer = SheetSerializer(debug=options.debug)
             serializer.compatible_mode = options.compatible_mode
+            serializer.signed_encoding = not options.unsigned_encoding
             if options.fixed32:
                 serializer.fixed32_codec = FixedCodec(fraction_bits=options.fixed32_fraction_bits, type_size=32)
             if options.fixed64:

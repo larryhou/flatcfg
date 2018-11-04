@@ -1039,6 +1039,7 @@ class SheetSerializer(Codec):
         if self.compatible_mode:
             table.type_name = 'ProtoFScalar'
             holder.name = FIXED_MEMORY_NAME = 'rawValue'
+            holder.type = FieldType.int32 if self.signed_encoding else FieldType.uint32
         table.member_fields.append(holder)
         table.tag = holder.tag
         table.offset = field.offset

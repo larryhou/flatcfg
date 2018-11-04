@@ -521,9 +521,9 @@ class ProtobufEncoder(BookEncoder):
             self.__encode_table(field.table, column_offset, message)
 
     def __encode_fixed_floats(self, container, memories):
-        for x in memories:
+        for m in memories:
             f = container.add() # type: object
-            f.__setattr__(FIXED_MEMORY_NAME, x)
+            f.__setattr__(FIXED_MEMORY_NAME, m)
 
     def __encode_table(self, table:TableFieldObject, column_offset:int = 0, message:object = None):
         if not message: message = self.create_message_object(table.type_name)

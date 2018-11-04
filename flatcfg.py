@@ -510,12 +510,12 @@ class ProtobufEncoder(BookEncoder):
         return enum_type.Value(case_name)
 
     def __encode_array(self, container, field:ArrayFieldObject):
-        table_size = len(field.table.member_fields)
+        table_size = field.table.size
         item_count = 0 # field.count
         cell = self.sheet.cell(self.cursor, field.offset)
         if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
-            if 0 < count < field.count: item_count = count
+            if 0 < count <= field.count: item_count = count
         for n in range(item_count):
             column_offset = n * table_size
             message = container.add() # type: object
@@ -710,14 +710,14 @@ class FlatbufEncoder(BookEncoder):
             buffer.write('root_type {};\n'.format(array_type_name))
 
     def __encode_array(self, module_name, field): # type: (str, ArrayFieldObject)->int
-        table_size = len(field.table.member_fields)
+        table_size = field.table.size
         item_offsets:list[int] = []
 
         item_count = 0 # field.count
         cell = self.sheet.cell(self.cursor, field.offset)
         if not self.is_cell_empty(cell):
             count = self.parse_int(str(cell.value))
-            if 0 < count < field.count: item_count = count
+            if 0 < count <= field.count: item_count = count
         for n in range(item_count):
             column_offset = table_size * n
             offset = self.__encode_table(field.table, column_offset)

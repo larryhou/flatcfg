@@ -193,7 +193,7 @@ class FixedCodec(object):
         self.__type_size = type_size
         self.__sign_mask = 1 << (self.__type_size - 1)
         self.__signed_min_memory = -(1 << (type_size - 1))
-        self.__signed_max_memory = self.__max_integer_value
+        self.__signed_max_memory = self.__max_memory
 
     @property
     def type_size(self): return self.__type_size

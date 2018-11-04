@@ -16,6 +16,7 @@ ROW_DATA_INDEX = range(6)
 SHARED_PREFIX = 'shared_'
 SHARED_ENUM_NAME = '{}enum'.format(SHARED_PREFIX)
 ROOT_CLASS_TEMPLATE = '{}_ARRAY'
+FIXED_MEMORY_NAME = 'memory'
 
 class FieldType(enum.Enum):
     float, float32, float64, double, \
@@ -209,14 +210,14 @@ class FixedCodec(object):
     @property
     def max_memory(self)->int: return self.__max_memory
 
-    def encode(self, v:float)->int:
+    def encode(self, v:float, signed_encoding:bool = True)->int:
         if v >= self.max_value: return self.__max_memory
         if v <= self.min_value: return self.__min_memory
         if v >= 0:
             return min(int(v * self.__scaling), self.__max_memory)
         else:
             m = max(int(v * self.__scaling), self.__signed_min_memory)
-            return m & self.__type_mask
+            return m if signed_encoding else m & self.__type_mask
 
     def decode(self, v:int)->float:
         if (self.__sign_mask & v) > 0:
@@ -518,12 +519,17 @@ class ProtobufEncoder(BookEncoder):
             message = container.add() # type: object
             self.__encode_table(field.table, column_offset, message)
 
+    def __encode_fixed_floats(self, container, memories):
+        for x in memories:
+            f = container.add() # type: object
+            f.__setattr__(FIXED_MEMORY_NAME, x)
+
     def __encode_table(self, table:TableFieldObject, column_offset:int = 0, message:object = None):
         if not message: message = self.create_message_object(table.type_name)
         for field in table.member_fields:
             fv = str(self.sheet.cell(self.cursor, field.offset + column_offset).value).strip()
             nest_object = message.__getattribute__(field.name)
-            if isinstance(field, TableFieldObject):
+            if isinstance(field, TableFieldObject) and field.rule != FieldRule.repeated:
                 self.__encode_table(field, message=nest_object)
                 continue
             elif isinstance(field, ArrayFieldObject):
@@ -535,8 +541,12 @@ class ProtobufEncoder(BookEncoder):
                     items = [self.parse_enum(x, field.enum) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
                     items = [self.fixed32_codec.encode(self.parse_float(x)) for x in items]
+                    self.__encode_fixed_floats(nest_object, items)
+                    continue
                 elif field.tag == FieldTag.fixed_float64:
                     items = [self.fixed64_codec.encode(self.parse_float(x)) for x in items]
+                    self.__encode_fixed_floats(nest_object, items)
+                    continue
                 elif field.type != FieldType.string:
                     items = [self.parse_scalar(x, field.type) for x in items]
                 container = nest_object # type: list
@@ -664,7 +674,7 @@ class FlatbufEncoder(BookEncoder):
                 if not self.get_table_accessible(member): continue
                 nest_table_list.append(member)
                 assert member.name
-                buffer.write(member.type_name)
+                buffer.write(type_format.format(member.type_name))
             elif isinstance(member, ArrayFieldObject):
                 if not self.get_array_accessible(member): continue
                 assert member.table
@@ -767,6 +777,15 @@ class FlatbufEncoder(BookEncoder):
             self.string_offsets[uuid] = offset
             return offset
 
+    def __encode_fixed_floats(self, table, memories): # type: (TableFieldObject, list[int])->list[int]
+        offset_list = []
+        for m in memories:
+            self.start_object(table.type_name)
+            self.add_field(table.type_name, FIXED_MEMORY_NAME, m)
+            offset = self.end_object(table.type_name)
+            offset_list.append(offset)
+        return offset_list
+
     def __encode_table(self, table, column_offset = 0): # type: (TableFieldObject, int)->int
         offset_map:dict[str, int] = {}
         module_name = table.type_name
@@ -775,7 +794,7 @@ class FlatbufEncoder(BookEncoder):
         for n in range(member_count):
             field = table.member_fields[n]
             fv = str(row_items[field.offset + column_offset].value).strip()
-            if isinstance(field, TableFieldObject):
+            if isinstance(field, TableFieldObject) and field.rule != FieldRule.repeated:
                 offset = self.__encode_table(field, column_offset)
             elif isinstance(field, ArrayFieldObject):
                 offset = self.__encode_array(module_name, field)
@@ -786,9 +805,13 @@ class FlatbufEncoder(BookEncoder):
                 elif isinstance(field, EnumFieldObject):
                     items = [self.parse_enum(x, field.enum) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
+                    assert isinstance(field, TableFieldObject)
                     items = [self.fixed32_codec.encode(self.parse_float(x)) for x in items]
+                    items = self.__encode_fixed_floats(field, items)
                 elif field.tag == FieldTag.fixed_float64:
+                    assert isinstance(field, TableFieldObject)
                     items = [self.fixed64_codec.encode(self.parse_float(x)) for x in items]
+                    items = self.__encode_fixed_floats(field, items)
                 else:
                     items = [self.parse_scalar(x, field.type) for x in items]
                 offset = self.__encode_vector(module_name, items, field)
@@ -997,16 +1020,18 @@ class SheetSerializer(Codec):
         table = TableFieldObject(member_count=1)
         table.name = field.name
         table.type_name = 'FixedFloat{}'.format(codec.type_size)
+        table.rule = field.rule
         holder = FieldObject()
         holder.fill(field)
-        holder.name = 'memory'
-        holder.type = FieldType.uint32 if codec.type_size == 32 else FieldType.uint64
+        holder.name = FIXED_MEMORY_NAME
+        holder.type = FieldType.int32 if codec.type_size == 32 else FieldType.int64
         holder.rule = FieldRule.optional
         holder.default = '0'
         holder.tag = FieldTag.fixed_float32 if codec.type_size == 32 else FieldTag.fixed_float64
         holder.description = 'representation of float{} value'.format(codec.type_size)
         table.member_fields.append(holder)
         table.tag = holder.tag
+        table.offset = field.offset
         return table
 
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:

@@ -1020,6 +1020,7 @@ class SheetSerializer(Codec):
         return prefix + table_name if prefix else table_name
 
     def __hook_fixed_float(self, field:FieldObject, codec:FixedCodec)->TableFieldObject:
+        global FIXED_MEMORY_NAME
         table = TableFieldObject(member_count=1)
         table.name = field.name
         table.type_name = 'FixedFloat{}'.format(codec.type_size)
@@ -1035,6 +1036,9 @@ class SheetSerializer(Codec):
         holder.default = '0'
         holder.tag = FieldTag.fixed_float32 if codec.type_size == 32 else FieldTag.fixed_float64
         holder.description = 'representation of float{} value'.format(codec.type_size)
+        if self.compatible_mode:
+            table.type_name = 'ProtoFScalar'
+            holder.name = FIXED_MEMORY_NAME = 'rawValue'
         table.member_fields.append(holder)
         table.tag = holder.tag
         table.offset = field.offset

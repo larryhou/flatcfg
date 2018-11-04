@@ -212,7 +212,8 @@ class FixedCodec(object):
 
     def encode(self, v:float, signed_encoding:bool = True)->int:
         if v >= self.max_value: return self.__max_memory
-        if v <= self.min_value: return self.__min_memory
+        if v <= self.min_value:
+            return self.__signed_min_memory if signed_encoding else self.__min_memory
         if v >= 0:
             return min(int(v * self.__scaling), self.__max_memory)
         else:

@@ -221,7 +221,7 @@ class FixedCodec(object):
             return m if signed_encoding else m & self.__type_mask
 
     def decode(self, v:int)->float:
-        if (self.__sign_mask & v) > 0:
+        if v > 0 and (self.__sign_mask & v) > 0:
             v = -(~(v - 1) & self.__type_mask)
         return v / self.__scaling
 

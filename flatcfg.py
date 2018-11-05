@@ -87,7 +87,8 @@ class FieldObject(object):
     def equal(self, f:'FieldObject')->bool:
         return self.name == f.name \
                and self.type == f.type \
-               and self.size == f.size
+               and self.size == f.size \
+               and self.rule == f.rule if self.rule == FieldRule.repeated or f.rule == FieldRule.repeated else True
 
     def to_string(self, v:enum.Enum):
         return v.name if v else ''
@@ -147,6 +148,7 @@ class ArrayFieldObject(FieldObject):
     def count(self) -> int: return self.__count
 
     def equal(self, f:'ArrayFieldObject'):
+        assert isinstance(f, ArrayFieldObject)
         return f.table.equal(self.table)
 
 class TableFieldObject(FieldObject):
@@ -166,6 +168,7 @@ class TableFieldObject(FieldObject):
         return [x.name for x in self.member_fields]
 
     def equal(self, f:'TableFieldObject'):
+        assert isinstance(f, TableFieldObject)
         length = len(self.member_fields)
         if f.type_name != self.type_name: return False
         if len(f.member_fields) != len(self.member_fields): return False

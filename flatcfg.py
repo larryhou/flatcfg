@@ -401,6 +401,7 @@ class BookEncoder(Codec):
         pass
 
     def load_modules(self):
+        import importlib
         python_out = self.compile_schemas()
         module_list = []
         for base_path, _, file_name_list in os.walk(python_out):
@@ -414,6 +415,7 @@ class BookEncoder(Codec):
         scope_envs = locals()
         for module_name in module_list:
             module_map[module_name] = scope_envs.get(module_name)
+            importlib.reload(scope_envs.get(module_name))
         self.module_map = module_map
         return module_map
 

@@ -550,8 +550,8 @@ class ProtobufEncoder(BookEncoder):
 
     def __encode_fixed_floats(self, container, memories):
         for m in memories:
-            f = container.add() # type: object
-            f.__setattr__(FIXED_MEMORY_NAME, m)
+            ff = container.add() # type: object
+            ff.__setattr__(FIXED_MEMORY_NAME, m)
 
     def __encode_group(self, group:GroupFieldObject, container):
         item_count = 0  # field.count
@@ -560,22 +560,22 @@ class ProtobufEncoder(BookEncoder):
             count = self.parse_int(str(cell.value))
             if 0 < count <= group.count: item_count = count
         for n in range(item_count):
-            f = group.items[n]
-            v = str(self.sheet.cell(self.cursor, f.offset).value).strip()
+            field = group.items[n]
+            v = str(self.sheet.cell(self.cursor, field.offset).value).strip()
             if isinstance(group.field, EnumFieldObject):
                 container.append(self.parse_enum(v, group.field.enum))
             elif group.field.tag == FieldTag.fixed_float32:
                 assert isinstance(group.field, TableFieldObject)
-                memory = container.add() # type: object
-                memory.__setattr__(FIXED_MEMORY_NAME, self.fixed32_codec.encode(self.parse_float(v), self.signed_encoding))
+                ff = container.add() # type: object
+                ff.__setattr__(FIXED_MEMORY_NAME, self.fixed32_codec.encode(self.parse_float(v), self.signed_encoding))
             elif group.field.tag == FieldTag.fixed_float64:
                 assert isinstance(group.field, TableFieldObject)
-                memory = container.add()  # type: object
-                memory.__setattr__(FIXED_MEMORY_NAME, self.fixed64_codec.encode(self.parse_float(v), self.signed_encoding))
+                ff = container.add()  # type: object
+                ff.__setattr__(FIXED_MEMORY_NAME, self.fixed64_codec.encode(self.parse_float(v), self.signed_encoding))
             elif group.type == FieldType.string:
                 container.append(v)
             else:
-                container.append(self.parse_scalar(v, f.type))
+                container.append(self.parse_scalar(v, field.type))
 
     def __encode_table(self, table:TableFieldObject, message:object = None):
         if not message: message = self.create_message_object(table.type_name)

@@ -1228,9 +1228,9 @@ if __name__ == '__main__':
     arguments.add_argument('--fixed32', '-32', action='store_true', help='encode float field values into FixedFloat32 type')
     arguments.add_argument('--unsigned-encoding', '-0', action='store_true', help='encode fixed memory value into unsign integer type')
     options = arguments.parse_args(sys.argv[1:])
-    for book_filepath in options.excel_file:
-        print('>>> {}'.format(book_filepath))
-        book = xlrd.open_workbook(book_filepath)
+    for excel_filepath in options.excel_file:
+        print('>>> {}'.format(excel_filepath))
+        book = xlrd.open_workbook(excel_filepath)
         for sheet_name in book.sheet_names(): # type: str
             if not sheet_name.isupper(): continue
             serializer = SheetSerializer(debug=options.debug)

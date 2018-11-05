@@ -218,7 +218,7 @@ message FOO_CONF_ARRAY
 protoc --decode=dataconfig.FOO_CONF_ARRAY foo_conf.proto < foo_conf.ppb 
 ```
 
-```json
+```
 items {
   id: 2001
   name: "\350\207\252\347\210\206"
@@ -558,7 +558,7 @@ message FOO_CONF_ARRAY
 }
 ```
 
-```json
+```
 items {
   id: 2001
   name: "\350\207\252\347\210\206"

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 
-import xlrd, sys, io, re
-
-PRINT_ROW_COUNT = 5
+import xlrd, sys, io, re, argparse
 
 if __name__ == '__main__':
+    arguments = argparse.ArgumentParser()
+    arguments.add_argument('--excel-file', '-f', nargs='+')
+    arguments.add_argument('--print-full', '-a', action='store_true')
+    options = arguments.parse_args(sys.argv[1:])
     buffer = io.StringIO()
     note_column = ('FIELD_RULE', 'FIELD_TYPE', 'FIELD_NAME', 'FIELD_ACES', 'FIELD_DESC')
-    for book_filepath in sys.argv[1:]:
+    for book_filepath in options.excel_file:
         book = xlrd.open_workbook(book_filepath)
         buffer.write('> {}\n'.format(book_filepath))
         for sheet_name in book.sheet_names(): # type: str
@@ -17,8 +19,12 @@ if __name__ == '__main__':
             column_count = sheet.ncols
             buffer.write('|{}\n'.format(' |'*(column_count+1)))
             buffer.write('|{}\n'.format(':--|'*(column_count+1)))
-            for r in range(PRINT_ROW_COUNT):
-                buffer.write('| {} |'.format(note_column[r]))
+            print_count = sheet.nrows if options.print_full else 5
+            for r in range(sheet.nrows):
+                if r < len(note_column):
+                    buffer.write('| {} |'.format(note_column[r]))
+                else:
+                    buffer.write('| FIELD_DATA |')
                 for c in range(column_count):
                     cell = sheet.cell(r, c)
                     value = cell.value

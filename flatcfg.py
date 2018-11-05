@@ -24,7 +24,7 @@ class FieldType(enum.Enum):
     int, uint, int32, uint32, int64, uint64, \
     short, ushort, byte, ubyte, long, ulong, \
     bool, string = range(22) # standard protobuf scalar types
-    date, duration, enum, table, array = tuple(x + 100 for x in range(5)) # extend field types
+    date, duration, enum, table, array, none = tuple(x + 100 for x in range(6)) # extend field types
 
 class type_presets(object):
     ints = (FieldType.byte, FieldType.int8, FieldType.short, FieldType.int16, FieldType.int, FieldType.int32, FieldType.int64, FieldType.long)
@@ -94,8 +94,8 @@ class FieldObject(object):
         return v.name if v else ''
 
     def __repr__(self):
-        return 'name:{} type:{!r} rule:{!r} size:{} offset:{} access:{!r} desc:{!r}'\
-            .format(self.name, self.to_string(self.type), self.to_string(self.rule), self.size, self.offset, self.to_string(self.access), self.description)
+        return 'name:{} type:{!r} rule:{!r} size:{} offset:{} access:{!r} desc:{!r} tag:{!r}'\
+            .format(self.name, self.to_string(self.type), self.to_string(self.rule), self.size, self.offset, self.to_string(self.access), self.description, self.tag.name)
 
 class EnumFieldObject(FieldObject):
     def __init__(self, name:str):
@@ -134,6 +134,23 @@ class EnumFieldObject(FieldObject):
             self.default = default
         return self.default
 
+class GroupFieldObject(FieldObject):
+    def __init__(self, count:int):
+        super(GroupFieldObject, self).__init__()
+        self.type = FieldType.none
+        self.rule = FieldRule.repeated
+        self.field:FieldObject = None
+        self.items:list[FieldObject] = []
+        self.size = count
+        self.__count = count
+        assert count > 0
+
+    @property
+    def count(self): return self.__count
+
+    def equal(self, f:'GroupFieldObject'):
+        assert isinstance(f, GroupFieldObject)
+        return self.field.equal(f.field)
 
 class ArrayFieldObject(FieldObject):
     def __init__(self, count:int):
@@ -468,6 +485,12 @@ class ProtobufEncoder(BookEncoder):
             elif isinstance(member, EnumFieldObject):
                 assert member.enum
                 buffer.write(member.enum)
+            elif isinstance(member, GroupFieldObject):
+                assert member.field
+                if isinstance(member.field, TableFieldObject):
+                    buffer.write(member.field.type_name)
+                else:
+                    buffer.write(member.type.name)
             elif member.type == FieldType.date:
                 buffer.write(FieldType.uint32.name)
             elif member.type == FieldType.duration:
@@ -530,6 +553,30 @@ class ProtobufEncoder(BookEncoder):
             f = container.add() # type: object
             f.__setattr__(FIXED_MEMORY_NAME, m)
 
+    def __encode_group(self, group:GroupFieldObject, container):
+        item_count = 0  # field.count
+        cell = self.sheet.cell(self.cursor, group.offset)
+        if not self.is_cell_empty(cell):
+            count = self.parse_int(str(cell.value))
+            if 0 < count <= group.count: item_count = count
+        for n in range(item_count):
+            f = group.items[n]
+            v = str(self.sheet.cell(self.cursor, f.offset).value).strip()
+            if isinstance(group.field, EnumFieldObject):
+                container.append(self.parse_enum(v, group.field.enum))
+            elif group.field.tag == FieldTag.fixed_float32:
+                assert isinstance(group.field, TableFieldObject)
+                memory = container.add() # type: object
+                memory.__setattr__(FIXED_MEMORY_NAME, self.fixed32_codec.encode(self.parse_float(v), self.signed_encoding))
+            elif group.field.tag == FieldTag.fixed_float64:
+                assert isinstance(group.field, TableFieldObject)
+                memory = container.add()  # type: object
+                memory.__setattr__(FIXED_MEMORY_NAME, self.fixed64_codec.encode(self.parse_float(v), self.signed_encoding))
+            elif group.type == FieldType.string:
+                container.append(v)
+            else:
+                container.append(self.parse_scalar(v, f.type))
+
     def __encode_table(self, table:TableFieldObject, message:object = None):
         if not message: message = self.create_message_object(table.type_name)
         for field in table.member_fields:
@@ -543,7 +590,10 @@ class ProtobufEncoder(BookEncoder):
                 continue
             elif field.rule == FieldRule.repeated:
                 items = self.parse_array(fv)
-                if isinstance(field, EnumFieldObject):
+                if isinstance(field, GroupFieldObject):
+                    self.__encode_group(field, nest_object)
+                    continue
+                elif isinstance(field, EnumFieldObject):
                     items = [self.parse_enum(x, field.enum) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
                     items = [self.fixed32_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
@@ -595,7 +645,7 @@ class ProtobufEncoder(BookEncoder):
             if self.debug:
                 fp.seek(0)
                 print('+ {}'.format(self.enum_filepath))
-                print(fp.read())
+                # print(fp.read())
 
     def save_shared_syntax(self, tables): # type: (list[TableFieldObject])->None
         self.include_protos = []
@@ -689,6 +739,12 @@ class FlatbufEncoder(BookEncoder):
             elif isinstance(member, EnumFieldObject):
                 assert member.enum
                 buffer.write(type_format.format(member.enum))
+            elif isinstance(member, GroupFieldObject):
+                assert member.field
+                if isinstance(member.field, TableFieldObject):
+                    buffer.write(type_format.format(member.field.type_name))
+                else:
+                    buffer.write(type_format.format(member.type.name))
             elif member.type == FieldType.date:
                 buffer.write(type_format.format(FieldType.uint32.name))
             elif member.type == FieldType.duration:
@@ -789,6 +845,35 @@ class FlatbufEncoder(BookEncoder):
             offset_list.append(offset)
         return offset_list
 
+    def __encode_group(self, group): # type: (GroupFieldObject)->list[int]
+        items = []
+        has_fixed_floats = False
+        item_count = 0  # field.count
+        cell = self.sheet.cell(self.cursor, group.offset)
+        if not self.is_cell_empty(cell):
+            count = self.parse_int(str(cell.value))
+            if 0 < count <= group.count: item_count = count
+        for n in range(item_count):
+            f = group.items[n]
+            v = str(self.sheet.cell(self.cursor, f.offset).value).strip()
+            if isinstance(group.field, EnumFieldObject):
+                items.append(self.parse_enum(v, group.field.enum))
+            elif group.type == FieldType.string:
+                items.append(self.__encode_string(v))
+            elif group.field.tag == FieldTag.fixed_float32:
+                has_fixed_floats = True
+                assert isinstance(group.field, TableFieldObject)
+                items.append(self.fixed32_codec.encode(self.parse_float(v), self.signed_encoding))
+            elif group.field.tag == FieldTag.fixed_float64:
+                has_fixed_floats = True
+                assert isinstance(group.field, TableFieldObject)
+                items.append(self.fixed64_codec.encode(self.parse_float(v), self.signed_encoding))
+            else:
+                items.append(self.parse_scalar(v, f.type))
+        if has_fixed_floats:
+            items = self.__encode_fixed_floats(group.field, items)
+        return items
+
     def __encode_table(self, table): # type: (TableFieldObject)->int
         offset_map:dict[str, int] = {}
         module_name = table.type_name
@@ -803,7 +888,9 @@ class FlatbufEncoder(BookEncoder):
                 offset = self.__encode_array(module_name, field)
             elif field.rule == FieldRule.repeated:
                 items = self.parse_array(fv)
-                if field.type == FieldType.string:
+                if isinstance(field, GroupFieldObject):
+                    items = self.__encode_group(field)
+                elif field.type == FieldType.string:
                     items = [self.__encode_string(x) for x in items]
                 elif isinstance(field, EnumFieldObject):
                     items = [self.parse_enum(x, field.enum) for x in items]
@@ -941,7 +1028,7 @@ class FlatbufEncoder(BookEncoder):
             if self.debug:
                 fp.seek(0)
                 print('+ {}'.format(self.enum_filepath))
-                print(fp.read())
+                # print(fp.read())
 
     def save_shared_syntax(self, tables): # type: (list[TableFieldObject])->None
         self.include_schemas = []
@@ -1046,6 +1133,21 @@ class SheetSerializer(Codec):
         table.offset = field.offset
         return table
 
+    def __parse_group(self, group:GroupFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
+        self.log(depth, '[GROUP] col:{} count:{}'.format(self.abc(column - 1), group.count))
+        field:FieldObject = None
+        for n in range(group.count):
+            item = self.__parse_field(sheet, column + n, depth + 1)
+            if not field: field = item
+            group.items.append(item)
+            assert item.rule != FieldRule.repeated, item
+            assert field.equal(item), item
+        group.type = field.type
+        group.size = group.count
+        group.field = field
+        self.log(depth, group)
+        return column + group.count
+
     def __parse_array(self, array:ArrayFieldObject, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->int:
         self.log(depth, '[ARRAY] col:{} count:{}'.format(self.abc(column-1), array.count))
         table:TableFieldObject = self.__parse_field(sheet, column, depth=depth + 1)
@@ -1104,13 +1206,24 @@ class SheetSerializer(Codec):
         field.access = self.__parse_access(field_aces)
         field.description = field_desc
         field.offset = c
+        # print('-====', field, field_type)
         if self.is_int(field_type):
+            print(field)
             num = self.parse_int(field_type)
             if field.rule == FieldRule.repeated:
-                nest_array = ArrayFieldObject(num)
-                nest_array.fill(field)
-                nest_array.type = FieldType.array
-                field = nest_array
+                next_type = str(self.__sheet.cell(ROW_TYPE_INDEX, c + 1).value).strip()
+                if self.is_int(next_type):
+                    nest_array = ArrayFieldObject(num)
+                    nest_array.fill(field)
+                    nest_array.type = FieldType.array
+                    field = nest_array
+                    assert field.rule == FieldRule.repeated
+                else:
+                    nest_group = GroupFieldObject(num)
+                    nest_group.fill(field)
+                    nest_group.type = FieldType.none
+                    field = nest_group
+                    assert field.rule == FieldRule.repeated
                 assert field.name, '{}:{} Array field need a name'.format(ROW_NAME_INDEX + 1, self.abc(c))
             else:
                 nest_table = TableFieldObject(num)
@@ -1135,6 +1248,13 @@ class SheetSerializer(Codec):
             field.default = self.get_default(field.type)
         if field.rule == FieldRule.repeated: field.default = ''
         self.log(depth, '{:2d} {:2s} {}'.format(c, self.abc(c), field))
+        # hook fixed float
+        if self.fixed32_codec and field.type in (FieldType.float, FieldType.float32):
+            field = self.__hook_fixed_float(field, self.fixed32_codec)
+            self.fixed_tables[0] = field
+        elif self.fixed64_codec and field.type in (FieldType.double, FieldType.float64):
+            field = self.__hook_fixed_float(field, self.fixed64_codec)
+            self.fixed_tables[1] = field
         self.__field_map[field.offset] = field
         return field
 
@@ -1149,15 +1269,11 @@ class SheetSerializer(Codec):
             if isinstance(field, ArrayFieldObject):
                 assert field.type == FieldType.array
                 c = self.__parse_array(field, sheet, c, depth=depth + 1)  # parse array
+            elif isinstance(field, GroupFieldObject):
+                c = self.__parse_group(field, sheet, c, depth=depth + 1)  # parse group
             elif isinstance(field, TableFieldObject):
                 assert field.type == FieldType.table
                 c = self.__parse_table(field, sheet, c, depth=depth + 1)
-            if self.fixed32_codec and field.type in (FieldType.float, FieldType.float32):
-                field = self.__hook_fixed_float(field, self.fixed32_codec)
-                self.fixed_tables[0] = field
-            elif self.fixed64_codec and field.type in (FieldType.double, FieldType.float64):
-                field = self.__hook_fixed_float(field, self.fixed64_codec)
-                self.fixed_tables[1] = field
             assert not table.has_member(field.name), '{} {}'.format(field.name, self.abc(field.offset))
             member_fields.append(field)
             if 0 < table.member_count == len(member_fields):
@@ -1223,6 +1339,7 @@ if __name__ == '__main__':
     arguments.add_argument('--time-zone', '-z', default=8.0, type=float, help='time zone for parsing date time')
     arguments.add_argument('--compatible-mode', '-i', action='store_true', help='for private use')
     arguments.add_argument('--access', '-a', choices=FieldAccess.get_option_choices(), default='default')
+    arguments.add_argument('--first-sheet', '-fs', action='store_true', help='only serialize first sheet')
     # arguments for fixed float encoding
     arguments.add_argument('--fixed32-fraction-bits', '-b32', default=10, type=int, help='use 2^exponent to present fractional part of a float32 value')
     arguments.add_argument('--fixed64-fraction-bits', '-b64', default=20, type=int, help='use 2^exponent to present fractional part of a float64 value')
@@ -1255,6 +1372,7 @@ if __name__ == '__main__':
             except Exception as error:
                 if options.error: raise error
                 else: continue
+            if options.first_sheet: exit()
         book.release_resources()
 
 

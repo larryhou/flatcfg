@@ -1,9 +1,9 @@
 # Prepare
-## install `python3`/`pip3`
-### python libraries `flatbuffers`,`protobuf`, `xlrd`
-### install command line tools `flatc`,`protoc`
++ install `python3`/`pip3`
++ python libraries `flatbuffers`,`protobuf`, `xlrd`
++ install command line tools `flatc`,`protoc`
 
-# Serialize 
+# Example 
 
 > FOO_CONF
 

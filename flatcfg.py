@@ -1177,7 +1177,7 @@ class SheetSerializer(Codec):
                     array.size = position - column + 1 # include all fields in array definition
                     self.log(depth, array)
                     return position
-            raise SyntaxError()
+            raise SyntaxError(array)
         else: return c
 
     def __parse_field(self, sheet:xlrd.sheet.Sheet, column:int, depth:int = 0)->FieldObject:
@@ -1269,7 +1269,7 @@ class SheetSerializer(Codec):
                 c = self.__parse_array(field, sheet, c, depth=depth + 1)  # parse array
             elif isinstance(field, GroupFieldObject):
                 c = self.__parse_group(field, sheet, c, depth=depth + 1)  # parse group
-            elif isinstance(field, TableFieldObject):
+            elif isinstance(field, TableFieldObject) and field.tag == FieldType.none:
                 assert field.type == FieldType.table
                 c = self.__parse_table(field, sheet, c, depth=depth + 1)
             assert not table.has_member(field.name), '{} {}'.format(field.name, self.abc(field.offset))

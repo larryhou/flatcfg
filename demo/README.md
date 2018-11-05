@@ -62,6 +62,10 @@ table FOO_CONF_ARRAY
 root_type FOO_CONF_ARRAY;
 ```
 
+```
+flatc --raw-binary -t --strict-json foo_conf.fbs -- foo_conf.fpb
+```
+
 ```json
 {
   "items": [
@@ -208,6 +212,10 @@ message FOO_CONF_ARRAY
 {
     repeated FOO_CONF items = 1;
 }
+```
+
+```
+protoc --decode=dataconfig.FOO_CONF_ARRAY foo_conf.proto < foo_conf.ppb 
 ```
 
 ```json

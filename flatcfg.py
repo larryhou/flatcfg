@@ -1211,8 +1211,8 @@ class SheetSerializer(Codec):
 if __name__ == '__main__':
     import sys, argparse
     arguments = argparse.ArgumentParser()
-    arguments.add_argument('--workspace', '-w', default='/Users/larryhou/Downloads/flatcfg/temp', help='workspace path for outputs and temp files')
-    arguments.add_argument('--book-file', '-f', nargs='+', required=True, help='xls book file path')
+    arguments.add_argument('--workspace', '-w', default=p.expanduser('~/Downloads/flatcfg'), help='workspace path for outputs and temp files')
+    arguments.add_argument('--excel-file', '-f', nargs='+', required=True, help='xls book file path')
     arguments.add_argument('--use-protobuf', '-u', action='store_true', help='generate protobuf format binary output')
     arguments.add_argument('--debug', '-d', action='store_true', help='use debug mode to get more detial information')
     arguments.add_argument('--error', '-e', action='store_true', help='raise error to console')
@@ -1228,7 +1228,7 @@ if __name__ == '__main__':
     arguments.add_argument('--fixed32', '-32', action='store_true', help='encode float field values into FixedFloat32 type')
     arguments.add_argument('--unsigned-encoding', '-0', action='store_true', help='encode fixed memory value into unsign integer type')
     options = arguments.parse_args(sys.argv[1:])
-    for book_filepath in options.book_file:
+    for book_filepath in options.excel_file:
         print('>>> {}'.format(book_filepath))
         book = xlrd.open_workbook(book_filepath)
         for sheet_name in book.sheet_names(): # type: str

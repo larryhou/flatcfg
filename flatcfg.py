@@ -1206,9 +1206,7 @@ class SheetSerializer(Codec):
         field.access = self.__parse_access(field_aces)
         field.description = field_desc
         field.offset = c
-        # print('-====', field, field_type)
         if self.is_int(field_type):
-            print(field)
             num = self.parse_int(field_type)
             if field.rule == FieldRule.repeated:
                 next_type = str(self.__sheet.cell(ROW_TYPE_INDEX, c + 1).value).strip()

@@ -297,7 +297,7 @@ class Codec(object):
         if not v: return 0
         date_format = '%Y-%m-%d %H:%M:%S'
         offset = datetime.timedelta(seconds=-self.time_zone * 3600)
-        assert re.match(r'^\d{4}(-\d{2})+ \d{2}(:\d{2})+$', v), '{!r} doesn\'t match with {!r}'.format(v, date_format)
+        assert re.match(r'^\d{4}(-\d{1,2})+ \d{1,2}(:\d{1,2})+$', v), '{!r} doesn\'t match with {!r}'.format(v, date_format)
         date = datetime.datetime.strptime(v, date_format) + offset
         seconds = (date - datetime.datetime(1970, 1, 1)).total_seconds()
         return min(int(seconds), (1<<32)-1)

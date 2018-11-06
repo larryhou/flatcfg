@@ -20,7 +20,7 @@ if __name__ == '__main__':
             buffer.write('|{}\n'.format(' |'*(column_count+1)))
             buffer.write('|{}\n'.format(':--|'*(column_count+1)))
             print_count = sheet.nrows if options.print_full else 5
-            for r in range(sheet.nrows):
+            for r in range(print_count):
                 if r < len(note_column):
                     buffer.write('| {} |'.format(note_column[r]))
                 else:

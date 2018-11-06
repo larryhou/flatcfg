@@ -401,6 +401,30 @@ message MALL_CONF_ARRAY
 
 More often, we just wanna generate simple array which contains scalar values, e.g. uint, bool. In this situation, we just declare a array same as `maps` field, in which the type cell value is scalar type, and the rule cell value is **repeated**, `flatcfg` will split each value by `;`, and generate array with related type declared in the type cell.
 
+| | | | | | | | | |
+|:--|:--|:--|:--|:--|:--|:--|:--|:--|
+| FIELD_RULE | required | optional | repeated | optional | optional | optional | optional | repeated |
+| FIELD_TYPE | uint32 | string | 4 | float | float | float | float | float |
+| FIELD_NAME | id | desc | day_night_modify_list | config_id | config_id | config_id | config_id | day_night_modify_list_2 |
+| FIELD_ACES |  |  | client |  |  |  |  | client |
+| FIELD_DESC | 英雄ID | 英雄名称 | 白天黑夜属性数组 | 配置ID | 配置ID | 配置ID | 配置ID | 白天黑夜属性数组 |
+| FIELD_DATA | 5 | 圣盾铁卫 | 4 | 505 | 506 | 507 | 508 | 505;506;507;508 |
+| FIELD_DATA | 9 | 冰川守护者 | 4 | 905 | 906 | 907 | 908 | 905;906;907;908 |
+| FIELD_DATA | 10 | 裁决铳弹 | 4 | 1005 | 1006 | 1007 | 1008 | 1005;1006;1007;1008 |
+| FIELD_DATA | 14 | 魔帽小女巫 | 4 | 1405 | 1406 | 1407 | 1408 | 1405;1406;1407;1408 |
+| FIELD_DATA | 16 | 神出鬼没 | 4 | 1605 | 1606 | 1607 | 1608 | 1605;1606;1607;1608 |
+
+```
+table HERO_DAY_NIGHT_CONF
+{
+    id:uint32(key); // '英雄ID'
+    desc:string; // '英雄名称'
+    day_night_modify_list:[float]; // '白天黑夜属性数组'
+    day_night_modify_list_2:[float]; // '白天黑夜属性数组'
+}
+```
+
+
 # Enum
 Both `FlatBuffers` and `Protobuf` support `enum` type, `flatcfg` also support `enum` declaration, e.g.
 

@@ -29,7 +29,7 @@ if __name__ == '__main__':
     report_format = '{{:>{}s}} {{:9,}} {{:9,}} {{:9,}} {{:7.1f}}%'.format(max_name_length)
     if markdown:
         report_format = '| {} |'.format(report_format.replace(' ', ' | '))
-        header_names = ['CONF_NAME', 'FLATBUFFERS', 'PROTOBUF', 'DIFF', 'DIFF_PCT']
+        header_names = ['CONF_NAME', 'FLATBUFFERS', 'PROTOBUF', 'DIFF', 'DIFF_PERCENT']
         header_sizes = [max(max_name_length, len(header_names[0])),
                         max(9, len(header_names[1])), max(9, len(header_names[1])), max(9, len(header_names[1])),
                         max(6, len(header_names[4]))]

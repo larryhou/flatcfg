@@ -1241,7 +1241,7 @@ class SheetSerializer(Codec):
             field = enum_field
         elif field_type == 'DateTime':
             field.type = FieldType.date
-        assert field.name and field.type, field
+        assert field.name and field.type, 'field_type={!r} {}'.format(field_type, field)
         if not field.default:
             field.default = self.get_default(field.type)
         if field.rule == FieldRule.repeated: field.default = ''

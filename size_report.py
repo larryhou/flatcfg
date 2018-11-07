@@ -40,7 +40,7 @@ if __name__ == '__main__':
         buffer.write('\n')
         buffer.write('|')
         for size in header_sizes:
-            buffer.write('-{}:|'.format(size * '-'))
+            buffer.write(' {}:|'.format(size * '-'))
         buffer.seek(0)
         print(buffer.read())
     for stat in result:

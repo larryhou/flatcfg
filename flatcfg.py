@@ -532,10 +532,10 @@ class ProtobufEncoder(BookEncoder):
         module = self.get_module(self.sheet.name.lower())
         return getattr(module, name)()
 
-    def parse_enum(self, case_name:str, type_name:str)->int:
+    def parse_enum(self, case_name:str, field:EnumFieldObject)->int:
         if not case_name: return 0
         module = self.get_module(SHARED_ENUM_NAME.lower())
-        enum_type:EnumTypeWrapper = getattr(module, type_name)
+        enum_type:EnumTypeWrapper = getattr(module, field.enum)
         return enum_type.Value(case_name)
 
     def __encode_array(self, container, field:ArrayFieldObject):
@@ -563,7 +563,7 @@ class ProtobufEncoder(BookEncoder):
             field = group.items[n]
             v = str(self.sheet.cell(self.cursor, field.offset).value).strip()
             if isinstance(group.field, EnumFieldObject):
-                container.append(self.parse_enum(v, group.field.enum))
+                container.append(self.parse_enum(v, group.field))
             elif group.field.tag == FieldTag.fixed_float32:
                 assert isinstance(group.field, TableFieldObject)
                 ff = container.add() # type: object
@@ -594,7 +594,7 @@ class ProtobufEncoder(BookEncoder):
                     self.__encode_group(field, nest_object)
                     continue
                 elif isinstance(field, EnumFieldObject):
-                    items = [self.parse_enum(x, field.enum) for x in items]
+                    items = [self.parse_enum(x, field) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
                     items = [self.fixed32_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
                     self.__encode_fixed_floats(nest_object, items)
@@ -609,7 +609,7 @@ class ProtobufEncoder(BookEncoder):
                 for x in items: container.append(x)
                 continue
             elif isinstance(field, EnumFieldObject):
-                fv = self.parse_enum(fv, field.enum)
+                fv = self.parse_enum(fv, field)
             elif field.tag == FieldTag.fixed_float32:
                 fv = self.fixed32_codec.encode(self.parse_float(fv), self.signed_encoding)
             elif field.tag == FieldTag.fixed_float64:
@@ -702,9 +702,9 @@ class FlatbufEncoder(BookEncoder):
         indent = self.get_indent(1)
         for name, field in enum_map.items():
             field_cases = [x for x in field.items()]
+            field_pointer = max([x for x in field.values()])
             field_cases.sort(key=operator.itemgetter(1))
-            size = len(field_cases)
-            buffer.write('enum {}:{}\n'.format(name, 'ubyte' if size < 0xFF else 'ushort'))
+            buffer.write('enum {}:{}\n'.format(name, 'ubyte' if field_pointer < 0xF0 else 'ushort'))
             buffer.write('{\n')
             for case, index in field_cases:
                 buffer.write('{}{} = {},\n'.format(indent, case, index))
@@ -790,9 +790,9 @@ class FlatbufEncoder(BookEncoder):
             self.__encode_scalar(v, field)
         return self.end_vector(item_count)
 
-    def parse_enum(self, case_name:str, type_name:str)->int:
-        module = self.module_map.get(type_name) # type: object
-        return getattr(getattr(module, type_name), case_name) if case_name else 0
+    def parse_enum(self, case_name:str, field:EnumFieldObject)->int:
+        module = self.module_map.get(field.enum) # type: object
+        return getattr(getattr(module, field.enum), case_name) if case_name else 0
 
     def __encode_scalar(self, v:any, field:FieldObject):
         ftype = field.type
@@ -857,7 +857,7 @@ class FlatbufEncoder(BookEncoder):
             f = group.items[n]
             v = str(self.sheet.cell(self.cursor, f.offset).value).strip()
             if isinstance(group.field, EnumFieldObject):
-                items.append(self.parse_enum(v, group.field.enum))
+                items.append(self.parse_enum(v, group.field))
             elif group.type == FieldType.string:
                 items.append(self.__encode_string(v))
             elif group.field.tag == FieldTag.fixed_float32:
@@ -893,7 +893,7 @@ class FlatbufEncoder(BookEncoder):
                 elif field.type == FieldType.string:
                     items = [self.__encode_string(x) for x in items]
                 elif isinstance(field, EnumFieldObject):
-                    items = [self.parse_enum(x, field.enum) for x in items]
+                    items = [self.parse_enum(x, field) for x in items]
                 elif field.tag == FieldTag.fixed_float32:
                     assert isinstance(field, TableFieldObject)
                     items = [self.fixed32_codec.encode(self.parse_float(x), self.signed_encoding) for x in items]
@@ -918,7 +918,7 @@ class FlatbufEncoder(BookEncoder):
             if field.name in offset_map:
                 fv = offset_map.get(field.name)
             elif isinstance(field, EnumFieldObject):
-                fv = self.parse_enum(fv, field.enum)
+                fv = self.parse_enum(fv, field)
             elif field.tag == FieldTag.fixed_float32:
                 fv = self.fixed32_codec.encode(self.parse_float(fv), self.signed_encoding)
             elif field.tag == FieldTag.fixed_float64:

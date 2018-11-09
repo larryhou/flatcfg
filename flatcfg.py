@@ -1089,6 +1089,59 @@ class SheetSerializer(Codec):
         self.fixed_tables:list[TableFieldObject] = [None, None]
         self.signed_encoding:bool = True
 
+    def __get_depth(self, s:str, m:int) -> int:
+        depth = 0
+        for n in range(len(s)):
+            c = s[n]
+            if c == '_':
+                if n >= m: return depth
+                depth = n
+        return depth
+
+    def __get_name_prefix(self, enum_map, case_depth = -1, upper_depth = 0xFF): # type: (dict[str, int], int, int)->str
+        keys = iter(enum_map.keys())
+        case_name = next(keys)
+        if case_depth == -1: case_depth = self.__get_depth(case_name, upper_depth)
+        if case_depth == -0: return None
+        for x in keys:
+            d = self.__get_depth(x, upper_depth)
+            if case_depth > d:
+                if d >= upper_depth: break
+                case_depth = d
+                if case_depth == 0: return None
+        prefix = case_name[:case_depth]
+        for x in enum_map.keys():
+            i = x[:case_depth]
+            if i != prefix: return self.__get_name_prefix(enum_map, case_depth, case_depth)
+        return case_name[:case_depth]
+
+    def optimize_enum_map(self, auto_prepend_prefix:bool, unique_case_name:bool = False):
+        rebuild_enum_map:dict[str, dict[str, int]] = {}
+        visit_map:dict[str, bool] = {}
+        for _, enum_map in self.__enum_map.items():
+            for case_name, _ in enum_map.items(): visit_map[case_name] = True
+        for type_name, enum_map in self.__enum_map.items():
+            number = min([x for x in enum_map.values()])
+            if number > 0:
+                if not auto_prepend_prefix:
+                    enum_map['NONE'] = 0
+                else:
+                    prefix = self.__get_name_prefix(enum_map)
+                    if not prefix:
+                        prefix = ''.join(re.findall(r'[A-Z]', type_name))
+                    case_name = '{}_NONE'.format(prefix)
+                    if unique_case_name and case_name in visit_map:
+                        case_name = '{}_TYPE_NONE'.format(prefix)
+                        while case_name in visit_map: case_name += '_'
+                    enum_map[case_name] = 0
+            enum_items = [x for x in enum_map.items()]
+            enum_items.sort(key=lambda x:x[1])
+            type_map = rebuild_enum_map[type_name] = {}
+            for case_name, number in enum_items:
+                type_map[case_name] = number
+                visit_map[case_name] = True
+        self.__enum_map = rebuild_enum_map
+
     @property
     def root_table(self)->TableFieldObject:return self.__root
 
@@ -1344,6 +1397,9 @@ if __name__ == '__main__':
     arguments.add_argument('--fixed64', '-64', action='store_true', help='encode double field values into FixedFloat64 type')
     arguments.add_argument('--fixed32', '-32', action='store_true', help='encode float field values into FixedFloat32 type')
     arguments.add_argument('--unsigned-encoding', '-0', action='store_true', help='encode fixed memory value into unsign integer type')
+    # arguments for fixing enum default values
+    arguments.add_argument('--enum-unique', '-eu', action='store_true', help='ensure unique case name, only for FlatBuffers')
+    arguments.add_argument('--enum-prefix', '-ep', action='store_true', help='auto prepend with a pattern string, only for FlatBuffers')
     options = arguments.parse_args(sys.argv[1:])
     for excel_filepath in options.excel_file:
         print('>>> {}'.format(excel_filepath))
@@ -1351,6 +1407,10 @@ if __name__ == '__main__':
         for sheet_name in book.sheet_names(): # type: str
             if not sheet_name.isupper(): continue
             serializer = SheetSerializer(debug=options.debug)
+            if options.use_protobuf:
+                serializer.optimize_enum_map(auto_prepend_prefix=True, unique_case_name=True)
+            else:
+                serializer.optimize_enum_map(auto_prepend_prefix=options.enum_prefix, unique_case_name=options.enum_unique)
             serializer.compatible_mode = options.compatible_mode
             serializer.signed_encoding = not options.unsigned_encoding
             if options.fixed32:

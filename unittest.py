@@ -32,6 +32,13 @@ class Suitcase(Codec):
             else:
                 self.row_layout.sort(key=lambda x: float(x[index].value))
 
+    def check(self, value, store):
+        if isinstance(value, float):
+            flag = abs(value - store) <= 1.0e-4
+        else:
+            flag = value == store
+        assert flag, 'expect={!r} but={!r}'.format(value, store)
+
     def compile_schemas(self) -> str:
         pass
 
@@ -45,12 +52,77 @@ class Suitcase(Codec):
 class ProtobufSuitcase(Suitcase):
     def __init__(self):
         super(ProtobufSuitcase, self).__init__()
+        self.data:object = None
 
     def compile_schemas(self)->str:
         return ProtobufEncoder.compile_schemas(self)
 
+    def create_root_object(self, buffer)->object:
+        module_name = self.sheet.name # type: str
+        module = self.module_map.get('{}_pb2'.format(module_name.lower()))
+        cls = getattr(module, ROOT_CLASS_TEMPLATE.format(module_name))
+        return getattr(cls, 'FromString')(buffer)
+
+    def get_enum_number(self, type_name:str, case_name:str)->int:
+        module = self.module_map.get('{}_pb2'.format(SHARED_ENUM_NAME.lower()))
+        cls = getattr(module, type_name)
+        return getattr(cls, 'Value')(case_name)
+
+    def read_data(self):
+        data_filepath = '{}/{}.ppb'.format(self.workspace, self.sheet.name.lower())
+        with open(data_filepath, 'rb') as fp:
+            self.data = self.create_root_object(fp.read()) # type: object
+            print(self.data.__class__)
+
+    def test_table(self, table:TableFieldObject, data:object):
+        for field in table.member_fields:
+            field_data = getattr(data, field.name)
+            if isinstance(field, TableFieldObject):
+                self.test_table(field, field_data)
+            elif isinstance(field, ArrayFieldObject):
+                self.test_array(field, field_data)
+            elif isinstance(field, GroupFieldObject):
+                self.test_group(field, field_data)
+            elif field.rule == FieldRule.repeated:
+                self.test_repeated_list(field, field_data)
+            else:
+                self.test_field(field, field_data)
+
+    def test_array(self, array:ArrayFieldObject, data):
+        assert len(data) <= len(array.elements)
+        for n in range(len(data)):
+            self.test_table(array.elements[n], data[n])
+
+    def test_group(self, group:GroupFieldObject, data):
+        assert len(data) <= len(group.items)
+        for n in range(len(data)):
+            self.test_field(group.items[n], data[n])
+
+    def test_field(self, field:FieldObject, data:object, value:str = None):
+        if not value:
+            value = str(self.row_layout[self.cursor][field.offset].value).strip()
+        if field.type == FieldType.string:
+            self.check(value, data)
+        elif isinstance(field, EnumFieldObject):
+            if not field.default: field.hook_default()
+            case_name = value if value else field.default
+            self.check(self.get_enum_number(field.enum, case_name), data)
+        else:
+            value = self.parse_scalar(value, field.type)
+            self.check(value, data)
+
+    def test_repeated_list(self, field:FieldObject, data):
+        value = str(self.row_layout[self.cursor][field.offset].value).strip()
+        items = self.parse_array(value)
+        assert len(items) == len(data)
+        for n in range(len(items)):
+            self.test_field(field, data[n], items[n])
+
     def run(self):
-        pass
+        self.read_data()
+        for n in range(len(self.row_layout)):
+            self.cursor = n
+            self.test_table(self.table, getattr(self.data, 'items')[n])
 
 class FlatbufSuitcase(Suitcase):
     def __init__(self):
@@ -72,13 +144,6 @@ class FlatbufSuitcase(Suitcase):
         module = self.module_map.get(module_name) # type: object
         cls = getattr(module, module_name)
         return getattr(cls, 'GetRootAs{}'.format(module_name))(buffer, 0)
-
-    def check(self, value, store):
-        if isinstance(value, float):
-            flag = abs(value - store) <= 1.0e-4
-        else:
-            flag = value == store
-        assert flag, 'expect={!r} but={!r}'.format(value, store)
 
     def get_enum_number(self, type_name:str, case_name:str):
         module = self.module_map.get(type_name)

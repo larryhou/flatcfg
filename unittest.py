@@ -99,7 +99,7 @@ class ProtobufSuitcase(Suitcase):
             self.test_field(group.items[n], data[n])
 
     def test_field(self, field:FieldObject, data:object, value:str = None):
-        if not value:
+        if value is None:
             value = str(self.row_layout[self.cursor][field.offset].value).strip()
         if field.type == FieldType.string:
             self.check(value, data)
@@ -114,8 +114,8 @@ class ProtobufSuitcase(Suitcase):
     def test_repeated_list(self, field:FieldObject, data):
         value = str(self.row_layout[self.cursor][field.offset].value).strip()
         items = self.parse_array(value)
-        assert len(items) == len(data)
-        for n in range(len(items)):
+        assert len(items) >= len(data)
+        for n in range(len(data)):
             self.test_field(field, data[n], items[n])
 
     def run(self):
@@ -152,8 +152,6 @@ class FlatbufSuitcase(Suitcase):
 
     def test_table(self, table:TableFieldObject, data:object):
         for field in table.member_fields:
-            row_cells = self.row_layout[self.cursor]
-            value = str(row_cells[field.offset].value).strip()
             if isinstance(field, ArrayFieldObject):
                 length = getattr(data, self.make_camel(field.name) + 'Length')()
                 self.test_array(field, getattr(data, self.make_camel(field.name)), length)
@@ -164,9 +162,9 @@ class FlatbufSuitcase(Suitcase):
                 self.test_group(field, getattr(data, self.make_camel(field.name)), length)
             elif field.rule == FieldRule.repeated:
                 length = getattr(data, self.make_camel(field.name) + 'Length')()
-                self.test_repeated_list(value, field, getattr(data, self.make_camel(field.name)), length)
+                self.test_repeated_list(field, getattr(data, self.make_camel(field.name)), length)
             else:
-                self.test_field(value, field, getattr(data, self.make_camel(field.name))())
+                self.test_field(field, getattr(data, self.make_camel(field.name))())
 
     def test_array(self, array:ArrayFieldObject, getter:callable, length:int):
         assert length <= len(array.elements)
@@ -177,16 +175,18 @@ class FlatbufSuitcase(Suitcase):
         assert length <= len(group.items)
         for n in range(length):
             item = group.items[n]
-            value = str(self.row_layout[self.cursor][item.offset].value).strip()
-            self.test_field(value, item, getter(n))
+            self.test_field(item, getter(n))
 
-    def test_repeated_list(self, value:str, field:FieldObject, getter:callable, length:int):
+    def test_repeated_list(self, field:FieldObject, getter:callable, length:int):
+        value = str(self.row_layout[self.cursor][field.offset].value).strip()
         items = self.parse_array(value)
         assert length <= len(items)
         for n in range(length):
-            self.test_field(items[n], field, getter(n))
+            self.test_field(field, getter(n), items[n])
 
-    def test_field(self, value:str, field:FieldObject, store):
+    def test_field(self, field:FieldObject, store, value:str = None):
+        if value is None:
+            value = str(self.row_layout[self.cursor][field.offset].value).strip()
         if field.type == FieldType.string:
             store = store.decode('utf-8')
             self.check(value, store)

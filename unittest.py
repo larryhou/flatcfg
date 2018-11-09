@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from flatcfg import *
 import os.path as p
-import xlrd, flatbuffers, os, re
+import xlrd
 
 class Suitcase(Codec):
     def __init__(self):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import enum, xlrd, re, io, json, os, hashlib, datetime
+import enum, xlrd, re, io, json, os, hashlib, datetime, sys
 import os.path as p
 from typing import Dict
 import operator
@@ -1386,7 +1386,7 @@ class SheetSerializer(Codec):
         encoder.encode()
 
 if __name__ == '__main__':
-    import sys, argparse
+    import argparse
     arguments = argparse.ArgumentParser()
     arguments.add_argument('--workspace', '-w', default=p.expanduser('~/Downloads/flatcfg'), help='workspace path for outputs and temp files')
     arguments.add_argument('--excel-file', '-f', nargs='+', required=True, help='xls book file path')

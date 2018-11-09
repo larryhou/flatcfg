@@ -295,7 +295,13 @@ class Codec(object):
             return v.lower() == 'true'
 
     def parse_array(self, v:str):
-        return [self.opt(x) for x in re.split(r'\s*[;\uff1b]\s*', v)] if v else [] # split with ;|；
+        items = []
+        if not v: return items
+        for it in re.split(r'\s*[;\uff1b]\s*', v): # split with ;|；
+            if it: items.append(it)
+        if len(items) == 1:
+            items[0] = self.opt(items[0])
+        return items
 
     def parse_date(self, v:str)->int:
         if not v: return 0

@@ -8,7 +8,7 @@ if __name__ == '__main__':
     arguments.add_argument('--workspace', '-w', default=p.expanduser('~/Downloads/flatcfg'))
     arguments.add_argument('--name', '-n', required=True, help='config name without extension')
     arguments.add_argument('--protobuf', '-pb', action='store_true', help='decode protobuf serialized data')
-    arguments.add_argument('--namespace', '-ns', default='dataconfig')
+    arguments.add_argument('--dump-defaults', '-df', action='store_true', help='dump default values for flatbuffer serialized data')
     options = arguments.parse_args(sys.argv[1:])
     os.chdir(options.workspace)
 
@@ -29,7 +29,9 @@ if __name__ == '__main__':
             data = dict_to_protobuf.protobuf_to_dict(root, use_enum_labels=True)
             print(json.dumps(data, ensure_ascii=False, indent=4))
     else:
-        command = 'flatc --raw-binary --json --defaults-json --strict-json {}.fbs -- {}.fpb'.format(name, name)
+        command = 'flatc --raw-binary --json  --strict-json {}.fbs'.format(name)
+        if options.dump_defaults: command += ' --defaults-json'
+        command += ' -- {}.fpb'.format(name)
         print('+ {}'.format(command))
         assert os.system(command) == 0
         with open('{}.json'.format(name), 'r') as fp:

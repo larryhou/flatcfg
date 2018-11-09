@@ -3,7 +3,7 @@
 if __name__ == '__main__':
     import argparse, sys, os, re
     arguments = argparse.ArgumentParser()
-    arguments.add_argument('--workspace', '-w', required=True)
+    arguments.add_argument('--workspace', '-w', default=os.path.expanduser('~/Downloads/flatcfg'))
     arguments.add_argument('--markdown', '-m', action='store_true')
     options = arguments.parse_args(sys.argv[1:])
     workspace = options.workspace # type: str

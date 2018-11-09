@@ -26,7 +26,7 @@ if __name__ == '__main__':
         cls = getattr(module, '{}_ARRAY'.format(name.upper()))
         with open('{}.ppb'.format(name), 'rb') as fp:
             root = getattr(cls, 'FromString')(fp.read())
-            data = dict_to_protobuf.protobuf_to_dict(root)
+            data = dict_to_protobuf.protobuf_to_dict(root, use_enum_labels=True)
             print(json.dumps(data, ensure_ascii=False, indent=4))
     else:
         command = 'flatc --raw-binary --json --strict-json {}.fbs -- {}.fpb'.format(name, name)

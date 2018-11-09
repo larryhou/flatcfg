@@ -29,7 +29,7 @@ if __name__ == '__main__':
             data = dict_to_protobuf.protobuf_to_dict(root, use_enum_labels=True)
             print(json.dumps(data, ensure_ascii=False, indent=4))
     else:
-        command = 'flatc --raw-binary --json --strict-json {}.fbs -- {}.fpb'.format(name, name)
+        command = 'flatc --raw-binary --json --defaults-json --strict-json {}.fbs -- {}.fpb'.format(name, name)
         print('+ {}'.format(command))
         assert os.system(command) == 0
         with open('{}.json'.format(name), 'r') as fp:

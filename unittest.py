@@ -13,6 +13,9 @@ class Suitcase(Codec):
         self.cursor:int = -1
         self.module_map = {}
         self.row_layout:list[list[xlrd.sheet.Cell]] = None
+        self.fixed32_codec: FixedCodec = None
+        self.fixed64_codec: FixedCodec = None
+        self.signed_encoding: bool = True
 
     def build_layout(self):
         self.row_layout = []
@@ -34,7 +37,7 @@ class Suitcase(Codec):
 
     def check(self, value, store):
         if isinstance(value, float):
-            flag = abs(value - store) <= 1.0e-4
+            flag = abs(value - store) <= 1.0e-2
         else:
             flag = value == store
         assert flag, 'expect={!r} but={!r}'.format(value, store)
@@ -77,7 +80,7 @@ class ProtobufSuitcase(Suitcase):
     def test_table(self, table:TableFieldObject, data:object):
         for field in table.member_fields:
             field_data = getattr(data, field.name)
-            if isinstance(field, TableFieldObject):
+            if isinstance(field, TableFieldObject) and field.tag == FieldTag.none:
                 self.test_table(field, field_data)
             elif isinstance(field, ArrayFieldObject):
                 self.test_array(field, field_data)
@@ -98,18 +101,27 @@ class ProtobufSuitcase(Suitcase):
         for n in range(len(data)):
             self.test_field(group.items[n], data[n])
 
-    def test_field(self, field:FieldObject, data:object, value:str = None):
+    def test_field(self, field:FieldObject, store:object, value:str = None):
         if value is None:
             value = str(self.row_layout[self.cursor][field.offset].value).strip()
         if field.type == FieldType.string:
-            self.check(value, data)
+            self.check(value, store)
         elif isinstance(field, EnumFieldObject):
             if not field.default: field.hook_default()
             case_name = value if value else field.default
-            self.check(self.get_enum_number(field.enum, case_name), data)
+            self.check(self.get_enum_number(field.enum, case_name), store)
         else:
-            value = self.parse_scalar(value, field.type)
-            self.check(value, data)
+            if self.fixed64_codec and field.tag == FieldTag.fixed_float64:
+                value = self.parse_float(value)
+                store = getattr(store, FIXED_MEMORY_NAME)
+                store = self.fixed64_codec.decode(store)
+            elif self.fixed32_codec and field.tag == FieldTag.fixed_float32:
+                value = self.parse_float(value)
+                store = getattr(store, FIXED_MEMORY_NAME)
+                store = self.fixed32_codec.decode(store)
+            else:
+                value = self.parse_scalar(value, field.type)
+            self.check(value, store)
 
     def test_repeated_list(self, field:FieldObject, data):
         value = str(self.row_layout[self.cursor][field.offset].value).strip()
@@ -155,7 +167,7 @@ class FlatbufSuitcase(Suitcase):
             if isinstance(field, ArrayFieldObject):
                 length = getattr(data, self.make_camel(field.name) + 'Length')()
                 self.test_array(field, getattr(data, self.make_camel(field.name)), length)
-            elif isinstance(field, TableFieldObject):
+            elif isinstance(field, TableFieldObject) and field.tag == FieldTag.none:
                 self.test_table(field, getattr(data, self.make_camel(field.name))())
             elif isinstance(field, GroupFieldObject):
                 length = getattr(data, self.make_camel(field.name) + 'Length')()
@@ -196,7 +208,17 @@ class FlatbufSuitcase(Suitcase):
             value = self.get_enum_number(field.enum, case_name)
             self.check(value, store)
         else:
-            value = self.parse_scalar(value, field.type)
+            if self.fixed64_codec and field.tag == FieldTag.fixed_float64:
+                value = self.parse_float(value)
+                store = getattr(store, self.make_camel(FIXED_MEMORY_NAME))()
+                print(value, store)
+                store = self.fixed64_codec.decode(store)
+            elif self.fixed32_codec and field.tag == FieldTag.fixed_float32:
+                value = self.parse_float(value)
+                store = getattr(store, self.make_camel(FIXED_MEMORY_NAME))()
+                store = self.fixed32_codec.decode(store)
+            else:
+                value = self.parse_scalar(value, field.type)
             self.check(value, store)
 
     def run(self):
@@ -214,6 +236,12 @@ if __name__ == '__main__':
     arguments.add_argument('--namespace', '-n', default='dataconfig', help='namespace for serialize class')
     arguments.add_argument('--workspace', '-w', default=p.expanduser('~/Downloads/flatcfg'), help='workspace path for outputs and temp files')
     arguments.add_argument('--debug', '-d', action='store_true', help='use debug mode to get more detial information')
+    # arguments for fixed float encoding
+    arguments.add_argument('--fixed32-fraction-bits', '-b32', default=10, type=int, help='use 2^exponent to present fractional part of a float32 value')
+    arguments.add_argument('--fixed64-fraction-bits', '-b64', default=20, type=int, help='use 2^exponent to present fractional part of a float64 value')
+    arguments.add_argument('--fixed64', '-64', action='store_true', help='encode double field values into FixedFloat64 type')
+    arguments.add_argument('--fixed32', '-32', action='store_true', help='encode float field values into FixedFloat32 type')
+    arguments.add_argument('--unsigned-encoding', '-0', action='store_true', help='encode fixed memory value into unsign integer type')
     options = arguments.parse_args(sys.argv[1:])
     for excel_filepath in options.excel_file:
         book = xlrd.open_workbook(excel_filepath)
@@ -221,6 +249,11 @@ if __name__ == '__main__':
             if not sheet_name.isupper(): continue
             sheet = book.sheet_by_name(sheet_name)
             serializer = SheetSerializer(debug=options.debug)
+            serializer.signed_encoding = not options.unsigned_encoding
+            if options.fixed32:
+                serializer.fixed32_codec = FixedCodec(fraction_bits=options.fixed32_fraction_bits, type_size=32)
+            if options.fixed64:
+                serializer.fixed64_codec = FixedCodec(fraction_bits=options.fixed64_fraction_bits, type_size=64)
             serializer.parse_syntax(sheet)
             if not serializer.root_table.member_fields: continue
             if options.protobuf:
@@ -230,6 +263,9 @@ if __name__ == '__main__':
                 suitcase = FlatbufSuitcase()
                 suitcase.python_out = p.join(options.workspace, 'fp', options.namespace)
             sys.path.append(suitcase.python_out)
+            suitcase.signed_encoding = serializer.signed_encoding
+            suitcase.fixed64_codec = serializer.fixed64_codec
+            suitcase.fixed32_codec = serializer.fixed32_codec
             suitcase.sheet = sheet
             suitcase.table = serializer.root_table
             suitcase.workspace = options.workspace

@@ -250,6 +250,7 @@ class Codec(object):
     def __init__(self):
         self.time_zone:float = 8.0
         self.debug:bool = True
+        self.datemode:int = 0
 
     def set_timezone(self, time_zone:float):
         self.time_zone = time_zone
@@ -275,6 +276,9 @@ class Codec(object):
     def is_int(self, v:str)->bool:
         return re.match(r'^[+-]?\d+(\.0)?$', v)
 
+    def is_float(self, v:str)->bool:
+        return re.match(r'^[+-]?\d+\.\d+$', v)
+
     def is_cell_empty(self, cell:xlrd.sheet.Cell)->bool:
         return cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK) or not str(cell.value).strip()
 
@@ -297,8 +301,12 @@ class Codec(object):
         if not v: return 0
         date_format = '%Y-%m-%d %H:%M:%S'
         offset = datetime.timedelta(seconds=-self.time_zone * 3600)
-        assert re.match(r'^\d{4}(-\d{1,2})+ \d{1,2}(:\d{1,2})+$', v), '{!r} doesn\'t match with {!r}'.format(v, date_format)
-        date = datetime.datetime.strptime(v, date_format) + offset
+        if re.match(r'^\d{4}(-\d{1,2})+ \d{1,2}(:\d{1,2})+$', v):
+            date = datetime.datetime.strptime(v, date_format) + offset
+        elif self.is_float(v):
+            date = xlrd.xldate_as_datetime(self.parse_float(v), self.datemode) + offset
+        else:
+            raise SyntaxError('invalid date format {!r}, expect date with format {!r}'.format(v, date_format))
         seconds = (date - datetime.datetime(1970, 1, 1)).total_seconds()
         return min(int(seconds), (1<<32)-1)
 
@@ -1424,6 +1432,7 @@ if __name__ == '__main__':
                 else:
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
                 encoder.access = FieldAccess.get_value(options.access)
+                encoder.datemode = book.datemode
                 encoder.set_package_name(options.namespace)
                 encoder.set_timezone(options.time_zone)
                 serializer.pack(encoder, auto_default_case=options.auto_default_case)

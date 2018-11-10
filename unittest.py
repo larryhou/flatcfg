@@ -38,6 +38,8 @@ class Suitcase(Codec):
     def check(self, value, store):
         if isinstance(value, float):
             flag = abs(value - store) <= 1.0e-2
+        elif isinstance(value, str):
+            flag = True if not value and not store else value == store
         else:
             flag = value == store
         assert flag, 'expect={!r} but={!r}'.format(value, store)
@@ -200,7 +202,7 @@ class FlatbufSuitcase(Suitcase):
         if value is None:
             value = str(self.row_layout[self.cursor][field.offset].value).strip()
         if field.type == FieldType.string:
-            store = store.decode('utf-8')
+            store = store.decode('utf-8') if store else None
             self.check(value, store)
         elif isinstance(field, EnumFieldObject):
             if not field.default: field.hook_default()

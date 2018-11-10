@@ -588,7 +588,7 @@ class ProtobufEncoder(BookEncoder):
                 ff = container.add()  # type: object
                 ff.__setattr__(FIXED_MEMORY_NAME, self.fixed64_codec.encode(self.parse_float(v), self.signed_encoding))
             elif group.type == FieldType.string:
-                container.append(v)
+                if not self.force_null or v: container.append(v)
             else:
                 container.append(self.parse_scalar(v, field.type))
 
@@ -620,6 +620,8 @@ class ProtobufEncoder(BookEncoder):
                     continue
                 elif field.type != FieldType.string:
                     items = [self.parse_scalar(x, field.type) for x in items]
+                else:
+                    if self.force_null and not fv: continue
                 container = nest_object # type: list
                 for x in items: container.append(x)
                 continue
@@ -631,6 +633,8 @@ class ProtobufEncoder(BookEncoder):
                 fv = self.fixed64_codec.encode(self.parse_float(fv), self.signed_encoding)
             elif field.type != FieldType.string:
                 fv = self.parse_scalar(fv, field.type)
+            else:
+                if self.force_null and not fv: continue
             message.__setattr__(field.name, fv)
         return message
 
@@ -875,7 +879,7 @@ class FlatbufEncoder(BookEncoder):
             if isinstance(group.field, EnumFieldObject):
                 items.append(self.parse_enum(v, group.field))
             elif group.type == FieldType.string:
-                items.append(self.__encode_string(v))
+                if not self.force_null or v: items.append(self.__encode_string(v))
             elif group.field.tag == FieldTag.fixed_float32:
                 has_fixed_floats = True
                 assert isinstance(group.field, TableFieldObject)

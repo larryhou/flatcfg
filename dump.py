@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
     name = re.sub(r'\.[^.]+$', '', options.name)
     if options.protobuf:
-        python_out = 'pb'
+        python_out = 'pp'
         if not p.exists(python_out): os.makedirs(python_out)
         command = 'protoc --proto_path=. --python_out={} {}.proto shared_*.proto'.format(python_out, name)
         print('+ {}'.format(command))

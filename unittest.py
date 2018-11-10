@@ -128,7 +128,7 @@ class ProtobufSuitcase(Suitcase):
     def test_repeated_list(self, field:FieldObject, data):
         value = str(self.row_layout[self.cursor][field.offset].value).strip()
         items = self.parse_array(value)
-        assert len(items) >= len(data)
+        assert len(items) == len(data)
         for n in range(len(data)):
             self.test_field(field, data[n], items[n])
 
@@ -194,7 +194,7 @@ class FlatbufSuitcase(Suitcase):
     def test_repeated_list(self, field:FieldObject, getter:callable, length:int):
         value = str(self.row_layout[self.cursor][field.offset].value).strip()
         items = self.parse_array(value)
-        assert length <= len(items)
+        assert length == len(items)
         for n in range(length):
             self.test_field(field, getter(n), items[n])
 

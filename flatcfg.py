@@ -390,6 +390,7 @@ class BookEncoder(Codec):
         self.fixed32_codec:FixedCodec = None
         self.fixed64_codec:FixedCodec = None
         self.signed_encoding:bool = True
+        self.force_null:bool = False
 
     def set_package_name(self, package_name:str):
         self.package_name = package_name
@@ -793,6 +794,7 @@ class FlatbufEncoder(BookEncoder):
         for n in range(item_count):
             offset = self.__encode_table(field.elements[n])
             item_offsets.append(offset)
+        if self.force_null and not item_offsets: return 0
         return self.__encode_vector(module_name, item_offsets, field)
 
     def __encode_vector(self, module_name, items, field): # type: (str, list[str], FieldObject)->int
@@ -918,9 +920,9 @@ class FlatbufEncoder(BookEncoder):
                     items = self.__encode_fixed_floats(field, items)
                 else:
                     items = [self.parse_scalar(x, field.type) for x in items]
-                offset = self.__encode_vector(module_name, items, field)
+                offset = self.__encode_vector(module_name, items, field) if items or not self.force_null else 0
             elif field.type == FieldType.string:
-                offset = self.__encode_string(fv)
+                offset = self.__encode_string(fv) if fv or not self.force_null else 0
             else:
                 offset = -1
             if offset >= 0: offset_map[field.name] = offset
@@ -931,6 +933,7 @@ class FlatbufEncoder(BookEncoder):
             fv = str(row_items[field.offset].value).strip()
             if field.name in offset_map:
                 fv = offset_map.get(field.name)
+                if fv == 0: continue
             elif isinstance(field, EnumFieldObject):
                 fv = self.parse_enum(fv, field)
             elif field.tag == FieldTag.fixed_float32:
@@ -1405,6 +1408,7 @@ if __name__ == '__main__':
     arguments.add_argument('--compatible-mode', '-i', action='store_true', help='for private use')
     arguments.add_argument('--access', '-a', choices=FieldAccess.get_option_choices(), default='default')
     arguments.add_argument('--first-sheet', '-fs', action='store_true', help='only serialize first sheet')
+    arguments.add_argument('--force-null', '-null', action='store_true', help='encode empty string/vector to null')
     # arguments for fixed float encoding
     arguments.add_argument('--fixed32-fraction-bits', '-b32', default=10, type=int, help='use 2^exponent to present fractional part of a float32 value')
     arguments.add_argument('--fixed64-fraction-bits', '-b64', default=20, type=int, help='use 2^exponent to present fractional part of a float64 value')
@@ -1438,6 +1442,7 @@ if __name__ == '__main__':
                 else:
                     encoder = FlatbufEncoder(workspace=options.workspace, debug=options.debug)
                 encoder.access = FieldAccess.get_value(options.access)
+                encoder.force_null = options.force_null
                 encoder.datemode = book.datemode
                 encoder.set_package_name(options.namespace)
                 encoder.set_timezone(options.time_zone)

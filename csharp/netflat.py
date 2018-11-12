@@ -13,10 +13,11 @@ if __name__ == '__main__':
     workspace = p.abspath(options.workspace)
     script_path = p.dirname(p.abspath(__file__))
     project_path = p.join(script_path, 'temp_flat/{}'.format(options.name))
+    if not p.exists(project_path): os.makedirs(project_path)
     command = 'flatc -n -o {} --gen-onefile {}/*.fbs'.format(p.join(project_path, 'Scripts'), workspace)
     print('+ {}'.format(command))
     assert os.system(command) == 0
-    compiler = AssemblyCompiler(options.name, project_path=script_path)
+    compiler = AssemblyCompiler(options.name, project_path=project_path)
     compiler.add_assembly_dependences(assembly_dependences=[p.join(script_path, 'flatbuffer.dll')])
     compiler.add_package_references(package_references=['System.Core'])
     compiler.add_source_paths(source_paths=[project_path])

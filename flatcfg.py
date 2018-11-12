@@ -326,6 +326,9 @@ class Codec(object):
             total += components[:-(n+1)]*factor[n]
         return min(total, (1<<32)-1)
 
+    def parse_string(self, v:str):
+        return v
+
     def get_default(self, t:FieldType)->str:
         if t in (FieldType.array, FieldType.table): return ''
         elif re.match(r'^u?int\d*$', t.name) or re.match(r'^u?(long|short|byte)$', t.name): return '0'
@@ -588,7 +591,7 @@ class ProtobufEncoder(BookEncoder):
                 ff = container.add()  # type: object
                 ff.__setattr__(FIXED_MEMORY_NAME, self.fixed64_codec.encode(self.parse_float(v), self.signed_encoding))
             elif group.type == FieldType.string:
-                if not self.force_null or v: container.append(v)
+                if not self.force_null or v: container.append(self.parse_string(v))
             else:
                 container.append(self.parse_scalar(v, field.type))
 
@@ -621,6 +624,7 @@ class ProtobufEncoder(BookEncoder):
                 elif field.type != FieldType.string:
                     items = [self.parse_scalar(x, field.type) for x in items]
                 else:
+                    fv = self.parse_string(fv)
                     if self.force_null and not fv: continue
                 container = nest_object # type: list
                 for x in items: container.append(x)
@@ -634,6 +638,7 @@ class ProtobufEncoder(BookEncoder):
             elif field.type != FieldType.string:
                 fv = self.parse_scalar(fv, field.type)
             else:
+                fv = self.parse_string(fv)
                 if self.force_null and not fv: continue
             message.__setattr__(field.name, fv)
         return message
@@ -846,6 +851,7 @@ class FlatbufEncoder(BookEncoder):
             raise SyntaxError('{!r}:{} not a scalar value {}'.format(v, ftype.name, field))
 
     def __encode_string(self, v:str)->int:
+        v = self.parse_string(v)
         md5 = hashlib.md5()
         md5.update(v.encode('utf-8'))
         uuid = md5.hexdigest()

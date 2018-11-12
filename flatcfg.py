@@ -1424,6 +1424,7 @@ if __name__ == '__main__':
     arguments.add_argument('--enum-prefix', '-ep', action='store_true', help='auto prepend with a pattern string, only for FlatBuffers')
     options = arguments.parse_args(sys.argv[1:])
     for excel_filepath in options.excel_file:
+        if p.basename(excel_filepath).startswith('~$'): continue
         print('>>> {}'.format(excel_filepath))
         book = xlrd.open_workbook(excel_filepath)
         for sheet_name in book.sheet_names(): # type: str

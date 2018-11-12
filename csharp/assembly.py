@@ -8,46 +8,55 @@ import lxml.etree as etree
 class configuration_names(object):
     debug, release = 'Debug', 'Release'
 
-class AssemblyCompiler(object):
-    def __init__(self, name):
+class UniqueArray(list):
+    def unique_extend_paths(self, path_items): # type: (list[str], list[str])->None
+        if not path_items: return
+        for item in [p.abspath(x) for x in path_items]:
+            if item not in self: self.append(item)
+
+    def unique_extend_items(self, items): # type: (list[str], list[str])->None
+        if not items: return
+        for item in items:
+            if item not in self: self.append(item)
+
+    def unique_append(self, item):
+        if item and item not in self: self.append(item)
+
+class Compiler(object):
+    def __init__(self):
+        self.script_path = p.dirname(p.abspath(__file__))
+
+class AssemblyCompiler(Compiler):
+    def __init__(self, name, project_path:str = None):
+        super(AssemblyCompiler, self).__init__()
         assert name
         self.name:str = name
-        self.define_symbols:list[str] = []
-        self.assembly_dependences:list[str] = []
-        self.package_references:list[str] = []
-        self.source_paths:list[str] = []
+        self.define_symbols:UniqueArray[str] = UniqueArray()
+        self.assembly_dependences:UniqueArray[str] = UniqueArray()
+        self.package_references:UniqueArray[str] = UniqueArray()
+        self.source_paths:UniqueArray[str] = UniqueArray()
         self.debug:bool = False
         self.force:bool = False
         self.__xml_parser = etree.XMLParser(compact=True, remove_blank_text=True)
-        self.__build_path:str = 'csharp_temp/{}'.format(name)
+        self.__build_path:str = 'csharp_temp/{}'.format(name) if not project_path else project_path
         self.__csproj_path:str = p.join(self.__build_path, 'project.csproj')
         self.__csproj_data:str = None
 
     def add_assembly_dependences(self, assembly_dependences): # type: (list[str])->None
         print('>> add_assembly_dependences {!r}'.format(assembly_dependences))
-        if assembly_dependences:
-            self.assembly_dependences.extend([p.abspath(x) for x in assembly_dependences])
+        self.assembly_dependences.unique_extend_paths(assembly_dependences)
 
     def add_package_references(self, package_references): # type: (list[str])->None
         print('>> add_package_references {!r}'.format(package_references))
-        if package_references: self.package_references.extend(package_references)
+        self.package_references.unique_extend_items(package_references)
 
     def add_define_symbols(self, define_symbols): # type: (list[str])->None
         print('>> add_define_symbols {!r}'.format(define_symbols))
-        if define_symbols: self.define_symbols.extend(define_symbols)
+        self.define_symbols.unique_extend_items(define_symbols)
 
     def add_source_paths(self, source_paths): # type: (list[str])->None
         print('>> add_source_paths {!r}'.format(source_paths))
-        if source_paths:
-            for include_source_path in source_paths:
-                include_source_path = p.abspath(include_source_path)
-                if include_source_path not in self.source_paths:
-                    self.source_paths.append(include_source_path)
-                for base_path, dir_names, _ in os.walk(include_source_path):
-                    for dir_name in dir_names:
-                        nest_source_path = p.join(base_path, dir_name)
-                        if nest_source_path not in self.source_paths:
-                            self.source_paths.append(nest_source_path)
+        self.source_paths.unique_extend_paths(source_paths)
 
     def __generate_project_config(self):
         node = etree.XML('<PropertyGroup/>')
@@ -78,8 +87,8 @@ class AssemblyCompiler(object):
     def __generate_class_config(self):
         node = etree.XML('<ItemGroup/>')
         for source_path in self.source_paths:
-            node.append(etree.XML('<Compile Include="{}\*.cs" />'.format(re.sub(r'/', r'\\', p.abspath(source_path)))))
-        node.append(etree.XML('<Compile Include="Properties\AssemblyInfo.cs" />'))
+            node.append(etree.XML('<Compile Include="{}\***\*.cs" />'.format(re.sub(r'/', r'\\', p.abspath(source_path)))))
+        # node.append(etree.XML('<Compile Include="Properties\AssemblyInfo.cs" />'))
         return node
 
     def __generate_build_config(self, debug): # type: (bool)->None
@@ -115,9 +124,8 @@ class AssemblyCompiler(object):
 
     def __generate_csproj(self):
         assert self.__build_path
-        if p.exists(self.__build_path):
-            shutil.rmtree(self.__build_path)
-        os.makedirs(self.__build_path)
+        if not p.exists(self.__build_path):
+            os.makedirs(self.__build_path)
         assembly_class = p.join(self.__build_path, 'Properties', 'AssemblyInfo.cs')
         self.__generate_assembly_properties(class_path=assembly_class)
         root = etree.XML('<Project DefaultTargets="Build" ToolsVersion="4.0" />')

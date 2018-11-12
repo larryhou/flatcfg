@@ -8,7 +8,7 @@ class ProtobufCompiler(Compiler):
         super(ProtobufCompiler, self).__init__()
         self.__proto_file_list:UniqueArray[str] = UniqueArray()
         self.__proto_path_list:UniqueArray[str] = UniqueArray()
-        self.__build_path:str = p.join(self.script_path, 'proto_temp/{}'.format(name))
+        self.__build_path:str = p.join(self.script_path, 'temp_proto/{}'.format(name))
         self.__csharp_out:str = p.join(self.__build_path, 'Scripts')
         if not p.exists(self.__build_path): os.makedirs(self.__build_path)
         self.name = name

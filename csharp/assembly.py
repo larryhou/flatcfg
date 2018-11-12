@@ -38,7 +38,7 @@ class AssemblyCompiler(Compiler):
         self.debug:bool = False
         self.force:bool = False
         self.__xml_parser = etree.XMLParser(compact=True, remove_blank_text=True)
-        self.__build_path:str = 'csharp_temp/{}'.format(name) if not project_path else project_path
+        self.__build_path:str = 'temp_csharp/{}'.format(name) if not project_path else project_path
         self.__csproj_path:str = p.join(self.__build_path, 'project.csproj')
         self.__csproj_data:str = None
 

@@ -12,13 +12,14 @@ if __name__ == '__main__':
     arguments.add_argument('--dependence', '-d', nargs='+', help='assembly files which source scripts depend on')
     options = arguments.parse_args(sys.argv[1:])
     workspace = p.abspath(options.workspace)
+    script_path = p.dirname(p.abspath(__file__))
     if not options.protobuf:
         csharp_out = p.join(workspace, 'fn')
         command = 'flatc -n -o {} --gen-onefile {}/*.fbs'.format(csharp_out, workspace)
         print('+ {}'.format(command))
         assert os.system(command) == 0
         compiler = AssemblyCompiler(options.name)
-        compiler.add_assembly_dependences(assembly_dependences=options.dependence)
+        compiler.add_assembly_dependences(assembly_dependences=[p.join(script_path, 'flatbuffer.dll')])
         compiler.add_package_references(package_references=['System.Core'])
         compiler.add_source_paths(source_paths=[csharp_out])
         assembly_path = compiler.compile(debug=True, force=True)

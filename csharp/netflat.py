@@ -7,7 +7,7 @@ if __name__ == '__main__':
     import argparse, sys
     arguments = argparse.ArgumentParser()
     arguments.add_argument('--workspace', '-w', default=p.expanduser('~/Downloads/flatcfg'))
-    arguments.add_argument('--name', '-n', default='FlatbufConfig', help='config name without extension')
+    arguments.add_argument('--name', '-n', default='FlatbuferConfig', help='config name without extension')
     arguments.add_argument('--dependence', '-d', nargs='+', help='assembly files which source scripts depend on')
     options = arguments.parse_args(sys.argv[1:])
     workspace = p.abspath(options.workspace)

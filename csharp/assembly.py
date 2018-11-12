@@ -25,7 +25,8 @@ class AssemblyCompiler(object):
 
     def add_assembly_dependences(self, assembly_dependences): # type: (list[str])->None
         print('>> add_assembly_dependences {!r}'.format(assembly_dependences))
-        if assembly_dependences: self.assembly_dependences.extend(assembly_dependences)
+        if assembly_dependences:
+            self.assembly_dependences.extend([p.abspath(x) for x in assembly_dependences])
 
     def add_package_references(self, package_references): # type: (list[str])->None
         print('>> add_package_references {!r}'.format(package_references))
@@ -37,7 +38,16 @@ class AssemblyCompiler(object):
 
     def add_source_paths(self, source_paths): # type: (list[str])->None
         print('>> add_source_paths {!r}'.format(source_paths))
-        if source_paths: self.source_paths.extend(source_paths)
+        if source_paths:
+            for include_source_path in source_paths:
+                include_source_path = p.abspath(include_source_path)
+                if include_source_path not in self.source_paths:
+                    self.source_paths.append(include_source_path)
+                for base_path, dir_names, _ in os.walk(include_source_path):
+                    for dir_name in dir_names:
+                        nest_source_path = p.join(base_path, dir_name)
+                        if nest_source_path not in self.source_paths:
+                            self.source_paths.append(nest_source_path)
 
     def __generate_project_config(self):
         node = etree.XML('<PropertyGroup/>')

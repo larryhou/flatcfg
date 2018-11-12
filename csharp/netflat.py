@@ -22,5 +22,5 @@ if __name__ == '__main__':
     compiler.add_package_references(package_references=['System.Core'])
     compiler.add_source_paths(source_paths=[project_path])
     assembly_path = compiler.compile(debug=True, force=True)
-    print('+ copy {} -> {}'.format(assembly_path, workspace))
-    shutil.copy(assembly_path, workspace)
+    print('+ copy {} -> {}'.format(assembly_path, script_path))
+    shutil.copy(assembly_path, script_path)

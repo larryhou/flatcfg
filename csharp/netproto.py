@@ -66,6 +66,19 @@ class ProtobufCompiler(Compiler):
             assert os.system(command) == 0
             os.remove(desc_temp)
 
+    def __generate_serializer(self, assembly_path:str)->str:
+        precompile = p.join(self.script_path, 'protobuf-net/Precompile/precompile.exe')
+        src_dll = p.abspath(assembly_path)
+        src_dll = p.relpath(src_dll, os.getcwd())
+        dst_dll = re.sub(r'(\.dll)$', r'Serializer\g<1>', src_dll)
+        serializer_name = '%sSerializer' % self.name
+        command = p.abspath(precompile) + ' {} -t:{} -o:{}'.format(src_dll, serializer_name, dst_dll)
+        if not self.__is_windows():
+            command = 'mono ' + command
+        print('+', command)
+        assert os.system(command) == 0
+        return dst_dll
+
     def compile(self, debug:bool = True, force:bool = False):
         self.__generate_descriptor()
         self.__generate_csharp_script()
@@ -74,9 +87,11 @@ class ProtobufCompiler(Compiler):
         asmCompiler.add_package_references(package_references=['System', 'System.xml'])
         asmCompiler.add_assembly_dependences(assembly_dependences=[p.join(self.script_path, 'protobuf-net/ProtoGen/protobuf-net.dll')])
         assembly_path = asmCompiler.compile(debug, force)
-        print('+ copy {} -> {}'.format(assembly_path, self.script_path))
+        serializer_path = self.__generate_serializer(assembly_path)
         import shutil
-        shutil.copy(assembly_path, self.script_path)
+        for dll_path in (assembly_path, serializer_path):
+            print('+ copy {} -> {}'.format(dll_path, self.script_path))
+            shutil.copy(dll_path, self.script_path)
 
 
 if __name__ == '__main__':

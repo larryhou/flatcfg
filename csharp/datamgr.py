@@ -73,7 +73,7 @@ def generate_protobuf_manager()->ScriptGenerator:
     gen.gap()
     gen.begin_class(options.class_name)
     gen.write('static ProtobufConfigSerializer serializer = new ProtobufConfigSerializer();')
-    gen.write('static Dictionary<string, TextAsset> storage = new Dictionary<string, TextAsset>();')
+    gen.write('static Dictionary<string, byte[]> storage = new Dictionary<string, byte[]>();')
     gen.write('static Dictionary<Type, object> database = new Dictionary<Type, object>();')
     gen.gap()
     gen.begin_method('Prepare')
@@ -81,7 +81,7 @@ def generate_protobuf_manager()->ScriptGenerator:
     for file_path in data_items:
         file_name = pattern.sub('', p.basename(file_path))
         gen.write('item = Resources.Load<TextAsset>("{}/{}");', load_path, file_name)
-        gen.write('storage.Add("{}", item);'.format(file_name))
+        gen.write('storage["{}"] = item.bytes;'.format(file_name))
     gen.end(gap=1)
     gen.write('static MemoryStream stream;')
     gen.begin_method('GetConfig', parameters=(('Type', 'type'), ('byte[]', 'data')), return_type='object', public=False)
@@ -98,7 +98,7 @@ def generate_protobuf_manager()->ScriptGenerator:
         file_name = pattern.sub('', p.basename(file_path))
         class_name = '{}_ARRAY'.format(file_name.upper())
         gen.write('type = typeof({});', class_name)
-        gen.write('config = GetConfig(type, storage["{}"].bytes);', file_name)
+        gen.write('config = GetConfig(type, storage["{}"]);', file_name)
         gen.write('database[type] = config;')
     gen.end(gap=1)
     gen.begin_method('GetConfig<T>', return_type='T', where='T:ProtoBuf.IExtensible')
@@ -106,6 +106,7 @@ def generate_protobuf_manager()->ScriptGenerator:
     gen.end(gap=1)
     gen.begin_method('Clear')
     gen.write('database.Clear();')
+    gen.write('storage.Clear();')
     gen.end(repeat=0)
     return gen
 
@@ -115,7 +116,7 @@ def generate_flatbuf_manager()->ScriptGenerator:
         gen.write('using {};', package_name)
     gen.gap()
     gen.begin_class(options.class_name)
-    gen.write('static readonly Dictionary<string, TextAsset> storage = new Dictionary<string, TextAsset>();')
+    gen.write('static readonly Dictionary<string, byte[]> storage = new Dictionary<string, byte[]>();')
     gen.write('static readonly Dictionary<Type, IFlatbufferObject> database = new Dictionary<Type, IFlatbufferObject>();')
     gen.gap()
     gen.begin_method('Prepare')
@@ -123,14 +124,14 @@ def generate_flatbuf_manager()->ScriptGenerator:
     for file_path in data_items:
         file_name = pattern.sub('', p.basename(file_path))
         gen.write('item = Resources.Load<TextAsset>("{}/{}");', load_path, file_name)
-        gen.write('storage.Add("{}", item);', file_name)
+        gen.write('storage["{}"] = item.bytes;', file_name)
     gen.end(gap=1)
     gen.begin_method('LoadConfig')
     gen.write('IFlatbufferObject config;')
     for file_path in data_items:
         file_name = pattern.sub('', p.basename(file_path))
         class_name = '{}_ARRAY'.format(file_name.upper())
-        gen.write('config = {}.GetRootAs{}(new ByteBuffer(storage["{}"].bytes));', class_name, class_name, file_name)
+        gen.write('config = {}.GetRootAs{}(new ByteBuffer(storage["{}"]));', class_name, class_name, file_name)
         gen.write('database[config.GetType()] = config;')
     gen.end(gap=1)
     gen.begin_method('GetConfig<T>', return_type='T', where='T:IFlatbufferObject')
@@ -138,6 +139,7 @@ def generate_flatbuf_manager()->ScriptGenerator:
     gen.end(gap=1)
     gen.begin_method('Clear')
     gen.write('database.Clear();')
+    gen.write('storage.Clear();')
     gen.end(repeat=0)
     return gen
 

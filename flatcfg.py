@@ -1349,7 +1349,7 @@ class SheetSerializer(Codec):
                 c = self.__parse_array(field, sheet, c, depth=depth + 1)  # parse array
             elif isinstance(field, GroupFieldObject):
                 c = self.__parse_group(field, sheet, c, depth=depth + 1)  # parse group
-            elif isinstance(field, TableFieldObject) and field.tag == FieldType.none:
+            elif isinstance(field, TableFieldObject) and field.tag == FieldTag.none:
                 assert field.type == FieldType.table
                 c = self.__parse_table(field, sheet, c, depth=depth + 1)
             assert not table.has_member(field.name), '{} {}'.format(field.name, self.abc(field.offset))

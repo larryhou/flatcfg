@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import enum, xlrd, re, io, json, os, hashlib, datetime, sys
+import enum, xlrd, re, io, json, os, hashlib, datetime, sys, glob
 import os.path as p
 from typing import Dict
 import operator
@@ -534,12 +534,12 @@ class ProtobufEncoder(BookEncoder):
 
     def compile_schemas(self)->str:
         python_out = p.abspath('{}/pp'.format(self.workspace))
-        shared_schema = '{}/{}*.proto'.format(self.workspace, SHARED_PREFIX)
+        shared_schema = [f for f in glob.glob('{}/{}*.proto'.format(self.workspace, SHARED_PREFIX))]
         data_schema = '{}/{}.proto'.format(self.workspace, self.sheet.name.lower())
         import shutil
         if p.exists(python_out): shutil.rmtree(python_out)
         os.makedirs(python_out)
-        command = 'protoc --proto_path={} --python_out={} {} {}'.format(self.workspace, python_out, shared_schema, data_schema)
+        command = 'protoc --proto_path={} --python_out={} {} {}'.format(self.workspace, python_out, " ".join(shared_schema), data_schema)
         assert os.system(command) == 0
         return python_out
 
@@ -957,11 +957,11 @@ class FlatbufEncoder(BookEncoder):
 
     def compile_schemas(self)->str:
         python_out = p.abspath('{}/fp'.format(self.workspace))
-        shared_schema = '{}/{}*.fbs'.format(self.workspace, SHARED_PREFIX)
+        shared_schema = [f for f in glob.glob('{}/{}*.fbs'.format(self.workspace, SHARED_PREFIX))]
         data_schema = '{}/{}.fbs'.format(self.workspace, self.sheet.name.lower())
         import shutil
         if p.exists(python_out): shutil.rmtree(python_out)
-        command = 'flatc -p -o {} {} {}'.format(python_out, shared_schema, data_schema)
+        command = 'flatc -p -o {} {} {}'.format(python_out, " ".join(shared_schema), data_schema)
         assert os.system(command) == 0
         return python_out
 
